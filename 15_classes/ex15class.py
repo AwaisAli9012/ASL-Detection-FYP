@@ -4,16 +4,19 @@ import json
 import numpy as np
 import mediapipe as mp
 
+# --- PATHS ---
 INPUT_DIR   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\frames_20"
 OUTPUT_DIR  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_clean"
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_clean.json"
 
+# --- CLASSES ---
 CLASSES_15 = [
     'help', 'yes', 'no', 'drink', 'go',
     'finish', 'play', 'mother', 'work', 'computer',
     'eat', 'dog', 'walk', 'want', 'who'
 ]
 
+# --- MEDIAPIPE SETUP ---
 mp_hands = mp.solutions.hands
 hands    = mp_hands.Hands(
     static_image_mode=True,
@@ -26,12 +29,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 all_keypoints = []
 all_labels    = []
 
-print(f"Extracting keypoints for 15 classes (with flipped augmentation)...\n")
+print("Extracting keypoints for 15 classes with flipped augmentation...\n")
 
 for idx, cls in enumerate(CLASSES_15):
     cls_path = os.path.join(INPUT_DIR, cls)
     if not os.path.isdir(cls_path):
-        print(f"❌ {cls}: NOT FOUND")
+        print(f"[NOT FOUND] {cls}")
         continue
 
     images = os.listdir(cls_path)
@@ -69,16 +72,17 @@ for idx, cls in enumerate(CLASSES_15):
 
             found += 1
 
-    print(f"✅ [{idx+1}/15] {cls}: {found} original + {found} flipped = {found*2} total")
+    print(f"[{idx+1}/15] {cls}: {found} original + {found} flipped = {found*2} total")
 
 hands.close()
 
+# --- SAVE ---
 np.save(os.path.join(OUTPUT_DIR, 'keypoints.npy'), np.array(all_keypoints))
 np.save(os.path.join(OUTPUT_DIR, 'labels.npy'),    np.array(all_labels))
 
 with open(LABELS_PATH, 'w') as f:
     json.dump(CLASSES_15, f)
 
-print(f"\n✅ Total samples: {len(all_keypoints)}")
-print(f"✅ Total classes: 15")
-print(f"✅ Saved to: {OUTPUT_DIR}")
+print(f"\nTotal samples: {len(all_keypoints)}")
+print(f"Total classes: 15")
+print(f"Saved to: {OUTPUT_DIR}")

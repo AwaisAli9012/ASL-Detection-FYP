@@ -12,7 +12,7 @@ MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
 
 # --- SETTINGS ---
-CONFIDENCE   = 0.80
+CONFIDENCE = 0.75
 SMOOTH       = 25
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 

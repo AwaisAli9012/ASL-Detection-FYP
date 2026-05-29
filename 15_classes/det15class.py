@@ -27,13 +27,13 @@ print(f"Model loaded - {len(labels)} classes")
 print(f"Classes: {labels}\n")
 
 # --- GROQ SETUP ---
-groq_client       = Groq(api_key=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)
+groq_client = Groq(api_key=GROQ_API_KEY)
 generated_sentence = ""
 
 def generate_sentence(words):
     try:
         response = groq_client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {
                     "role": "system",

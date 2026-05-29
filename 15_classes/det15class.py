@@ -92,7 +92,7 @@ while True:
 
     else:
         prediction_buffer.clear()
-        current_word = "No hand detected"
+        
         current_conf = 0.0
 
     # --- TOP BAR - SENTENCE ---

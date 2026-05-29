@@ -8,8 +8,8 @@ from groq import Groq
 import os
 
 # --- PATHS ---
-MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v2.h5"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
+MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v3.h5"
+LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v3.json"
 
 # --- SETTINGS ---
 CONFIDENCE = 0.75

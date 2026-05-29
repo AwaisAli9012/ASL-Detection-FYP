@@ -1,4 +1,4 @@
-Your 15 signs are
+Your 15 signs for v2 are:
 
 1. help
 2. yes
@@ -8,10 +8,10 @@ Your 15 signs are
 6. finish
 7. play
 8. mother
-9. work
-10. computer
-11. eat
-12. dog
-13. walk
-14. want
-15. who
+9. computer
+10. eat
+11. want
+12. who
+13. family
+14. like
+15. enjoy

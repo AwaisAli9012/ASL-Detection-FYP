@@ -20,3 +20,4 @@ Dataset/
 !15_classes/ 
 !10_classes/* 
 !15_classes/* 
+!*.md 

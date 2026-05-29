@@ -10,9 +10,8 @@ MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
 
 # --- SETTINGS ---
-CONFIDENCE        = 0.80
-SMOOTH            = 25
-CONFIRM_FRAMES    = 20
+CONFIDENCE = 0.80
+SMOOTH     = 25
 
 # --- LOAD MODEL ---
 print("Loading model...")
@@ -39,11 +38,13 @@ prediction_buffer = deque(maxlen=SMOOTH)
 sentence_words    = []
 current_word      = "..."
 current_conf      = 0.0
-last_added_word   = None
-confirm_counter   = 0
 cap               = cv2.VideoCapture(0)
 
-print("Webcam opened - press SPACE to clear, press Q to quit\n")
+print("Controls:")
+print("  ENTER     - Add current word to sentence")
+print("  BACKSPACE - Remove last word from sentence")
+print("  SPACE     - Clear entire sentence")
+print("  Q         - Quit\n")
 
 while True:
     ret, frame = cap.read()
@@ -89,36 +90,24 @@ while True:
             current_word = labels[smoothed_idx].upper()
             current_conf = confidence
 
-            # --- WORD CONFIRMATION ---
-            if labels[smoothed_idx] != last_added_word:
-                confirm_counter += 1
-                if confirm_counter >= CONFIRM_FRAMES:
-                    sentence_words.append(labels[smoothed_idx].upper())
-                    last_added_word = labels[smoothed_idx]
-                    confirm_counter = 0
-            else:
-                confirm_counter = 0
-
     else:
         prediction_buffer.clear()
-        current_word    = "No hand detected"
-        current_conf    = 0.0
-        confirm_counter = 0
-        last_added_word = None
+        current_word = "No hand detected"
+        current_conf = 0.0
 
     # --- TOP BAR - SENTENCE ---
-    cv2.rectangle(frame, (0, 0), (w, 50), (20, 20, 20), -1)
-    sentence_text = " ".join(sentence_words) if sentence_words else "Sign words to build a sentence..."
-    cv2.putText(frame, sentence_text, (10, 33),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.rectangle(frame, (0, 0), (w, 55), (20, 20, 20), -1)
+    sentence_text = " ".join(sentence_words) if sentence_words else "Press ENTER to add word..."
+    cv2.putText(frame, sentence_text, (10, 38),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
     # --- MIDDLE BAR - HAND COUNT ---
-    cv2.rectangle(frame, (0, 50), (w, 90), (0, 0, 0), -1)
+    cv2.rectangle(frame, (0, 55), (w, 95), (0, 0, 0), -1)
     hand_count = len(result.multi_hand_landmarks) if result.multi_hand_landmarks else 0
-    cv2.putText(frame, f"Hands: {hand_count}", (10, 78),
+    cv2.putText(frame, f"Hands: {hand_count}", (10, 83),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 (0, 255, 0) if hand_detected else (0, 0, 255), 2)
-    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 78),
+    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 83),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
     # --- BOTTOM BAR - CURRENT WORD ---
@@ -133,24 +122,30 @@ while True:
     cv2.putText(frame, label_text, (20, h - 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
 
-    # --- CONFIRM PROGRESS BAR ---
-    if hand_detected and confirm_counter > 0:
-        bar_width = int((confirm_counter / CONFIRM_FRAMES) * (w - 20))
-        cv2.rectangle(frame, (10, h - 90), (10 + bar_width, h - 82), (0, 255, 0), -1)
+    # --- CONTROLS HINT ---
+    cv2.putText(frame, "ENTER=Add  BKSP=Remove  SPACE=Clear  Q=Quit",
+                (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
 
     cv2.imshow("ASL Detection", frame)
 
     key = cv2.waitKey(1) & 0xFF
+
     if key == ord('q'):
         break
-    elif key == ord(' '):
+    elif key == 13:  # ENTER
+        if current_word not in ["...", "No hand detected"]:
+            sentence_words.append(current_word)
+            print(f"Added: {current_word} | Sentence: {' '.join(sentence_words)}")
+    elif key == 8:   # BACKSPACE
+        if sentence_words:
+            removed = sentence_words.pop()
+            print(f"Removed: {removed} | Sentence: {' '.join(sentence_words)}")
+    elif key == 32:  # SPACE
         sentence_words.clear()
-        last_added_word = None
-        confirm_counter = 0
         print("Sentence cleared.")
 
 cap.release()
 cv2.destroyAllWindows()
 hands.close()
 print("Detection stopped.")
-print(f"Final sentence words: {sentence_words}")
+print(f"Final sentence: {' '.join(sentence_words)}")

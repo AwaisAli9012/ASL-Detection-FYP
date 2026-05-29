@@ -8,9 +8,9 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLRO
 from sklearn.model_selection import train_test_split
 
 # --- PATHS ---
-KEYPOINTS_DIR = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_clean"
-MODEL_SAVE    = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_clean.h5"
-LABELS_PATH   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_clean.json"
+KEYPOINTS_DIR = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_v2"
+MODEL_SAVE    = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v2.h5"
+LABELS_PATH   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
 
 # --- LOAD DATA ---
 print("Loading keypoints...")

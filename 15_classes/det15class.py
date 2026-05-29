@@ -4,14 +4,17 @@ import numpy as np
 import tensorflow as tf
 import mediapipe as mp
 from collections import deque, Counter
+from groq import Groq
+import os
 
 # --- PATHS ---
 MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v2.h5"
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
 
 # --- SETTINGS ---
-CONFIDENCE = 0.80
-SMOOTH     = 25
+CONFIDENCE   = 0.80
+SMOOTH       = 25
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # --- LOAD MODEL ---
 print("Loading model...")
@@ -23,27 +26,52 @@ with open(LABELS_PATH, 'r') as f:
 print(f"Model loaded - {len(labels)} classes")
 print(f"Classes: {labels}\n")
 
+# --- GROQ SETUP ---
+groq_client       = Groq(api_key=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)
+generated_sentence = ""
+
+def generate_sentence(words):
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an ASL interpreter. The user is deaf and has signed these words in order. Form one short natural English sentence from these words. Reply with only the sentence, nothing else."
+                },
+                {
+                    "role": "user",
+                    "content": f"ASL signs in order: {', '.join(words)}"
+                }
+            ],
+            max_tokens=50
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 # --- MEDIAPIPE SETUP ---
 mp_hands = mp.solutions.hands
 mp_draw  = mp.solutions.drawing_utils
 hands    = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
-    min_detection_confidence=0.3,
-    min_tracking_confidence=0.3
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
 )
 
 # --- INIT ---
-prediction_buffer = deque(maxlen=SMOOTH)
-sentence_words    = []
-current_word      = "..."
-current_conf      = 0.0
-cap               = cv2.VideoCapture(0)
+prediction_buffer  = deque(maxlen=SMOOTH)
+sentence_words     = []
+current_word       = "..."
+current_conf       = 0.0
+cap                = cv2.VideoCapture(0)
 
 print("Controls:")
 print("  ENTER     - Add current word to sentence")
 print("  BACKSPACE - Remove last word from sentence")
-print("  SPACE     - Clear entire sentence")
+print("  G         - Generate sentence from signed words")
+print("  SPACE     - Clear everything")
 print("  Q         - Quit\n")
 
 while True:
@@ -92,22 +120,27 @@ while True:
 
     else:
         prediction_buffer.clear()
-        
         current_conf = 0.0
 
-    # --- TOP BAR - SENTENCE ---
+    # --- TOP BAR - SIGNED WORDS ---
     cv2.rectangle(frame, (0, 0), (w, 55), (20, 20, 20), -1)
     sentence_text = " ".join(sentence_words) if sentence_words else "Press ENTER to add word..."
     cv2.putText(frame, sentence_text, (10, 38),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
+    # --- SECOND BAR - GENERATED SENTENCE ---
+    cv2.rectangle(frame, (0, 55), (w, 110), (10, 10, 40), -1)
+    display_sentence = generated_sentence if generated_sentence else "Press G to generate sentence..."
+    cv2.putText(frame, display_sentence, (10, 90),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2)
+
     # --- MIDDLE BAR - HAND COUNT ---
-    cv2.rectangle(frame, (0, 55), (w, 95), (0, 0, 0), -1)
+    cv2.rectangle(frame, (0, 110), (w, 150), (0, 0, 0), -1)
     hand_count = len(result.multi_hand_landmarks) if result.multi_hand_landmarks else 0
-    cv2.putText(frame, f"Hands: {hand_count}", (10, 83),
+    cv2.putText(frame, f"Hands: {hand_count}", (10, 138),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 (0, 255, 0) if hand_detected else (0, 0, 255), 2)
-    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 83),
+    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 138),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
     # --- BOTTOM BAR - CURRENT WORD ---
@@ -123,7 +156,7 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
 
     # --- CONTROLS HINT ---
-    cv2.putText(frame, "ENTER=Add  BKSP=Remove  SPACE=Clear  Q=Quit",
+    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate  SPACE=Clear  Q=Quit",
                 (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
 
     cv2.imshow("ASL Detection", frame)
@@ -135,17 +168,27 @@ while True:
     elif key == 13:  # ENTER
         if current_word not in ["...", "No hand detected"]:
             sentence_words.append(current_word)
-            print(f"Added: {current_word} | Sentence: {' '.join(sentence_words)}")
+            generated_sentence = ""
+            print(f"Added: {current_word} | Words: {' '.join(sentence_words)}")
     elif key == 8:   # BACKSPACE
         if sentence_words:
             removed = sentence_words.pop()
-            print(f"Removed: {removed} | Sentence: {' '.join(sentence_words)}")
+            generated_sentence = ""
+            print(f"Removed: {removed} | Words: {' '.join(sentence_words)}")
+    elif key == ord('g'):
+        if sentence_words:
+            print("Generating sentence...")
+            generated_sentence = generate_sentence(sentence_words)
+            print(f"Generated: {generated_sentence}")
+        else:
+            print("No words to generate from.")
     elif key == 32:  # SPACE
         sentence_words.clear()
-        print("Sentence cleared.")
+        generated_sentence = ""
+        print("Cleared.")
 
 cap.release()
 cv2.destroyAllWindows()
 hands.close()
 print("Detection stopped.")
-print(f"Final sentence: {' '.join(sentence_words)}")
+print(f"Final words: {' '.join(sentence_words)}")

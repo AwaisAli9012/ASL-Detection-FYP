@@ -27,7 +27,7 @@ print(f"Model loaded - {len(labels)} classes")
 print(f"Classes: {labels}\n")
 
 # --- GROQ SETUP ---
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client        = Groq(api_key=GROQ_API_KEY)
 generated_sentence = ""
 
 def generate_sentence(words):
@@ -37,14 +37,14 @@ def generate_sentence(words):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an ASL interpreter. The user is deaf and has signed these words in order. Form one short natural English sentence from these words. Reply with only the sentence, nothing else."
+                    "content": "You are an ASL interpreter. Given ASL signs, provide exactly 2 interpretations on separate lines. Line 1 must start with 'Self:' and show first person meaning. Line 2 must start with 'To:' and show instruction meaning. Reply with only these 2 lines, nothing else."
                 },
                 {
                     "role": "user",
                     "content": f"ASL signs in order: {', '.join(words)}"
                 }
             ],
-            max_tokens=50
+            max_tokens=80
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -70,7 +70,7 @@ cap                = cv2.VideoCapture(0)
 print("Controls:")
 print("  ENTER     - Add current word to sentence")
 print("  BACKSPACE - Remove last word from sentence")
-print("  G         - Generate sentence from signed words")
+print("  G         - Generate both sentence interpretations")
 print("  SPACE     - Clear everything")
 print("  Q         - Quit\n")
 
@@ -128,19 +128,27 @@ while True:
     cv2.putText(frame, sentence_text, (10, 38),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
 
-    # --- SECOND BAR - GENERATED SENTENCE ---
-    cv2.rectangle(frame, (0, 55), (w, 110), (10, 10, 40), -1)
-    display_sentence = generated_sentence if generated_sentence else "Press G to generate sentence..."
-    cv2.putText(frame, display_sentence, (10, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 200, 0), 2)
+    # --- SECOND BAR - GENERATED SENTENCES ---
+    cv2.rectangle(frame, (0, 55), (w, 140), (10, 10, 40), -1)
+    if generated_sentence:
+        lines = generated_sentence.split('\n')
+        line1 = lines[0] if len(lines) > 0 else ""
+        line2 = lines[1] if len(lines) > 1 else ""
+        cv2.putText(frame, line1, (10, 85),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 200), 2)
+        cv2.putText(frame, line2, (10, 125),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 200, 0), 2)
+    else:
+        cv2.putText(frame, "Press G to generate sentence...", (10, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 2)
 
     # --- MIDDLE BAR - HAND COUNT ---
-    cv2.rectangle(frame, (0, 110), (w, 150), (0, 0, 0), -1)
+    cv2.rectangle(frame, (0, 140), (w, 180), (0, 0, 0), -1)
     hand_count = len(result.multi_hand_landmarks) if result.multi_hand_landmarks else 0
-    cv2.putText(frame, f"Hands: {hand_count}", (10, 138),
+    cv2.putText(frame, f"Hands: {hand_count}", (10, 168),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8,
                 (0, 255, 0) if hand_detected else (0, 0, 255), 2)
-    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 138),
+    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 168),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
     # --- BOTTOM BAR - CURRENT WORD ---
@@ -177,9 +185,9 @@ while True:
             print(f"Removed: {removed} | Words: {' '.join(sentence_words)}")
     elif key == ord('g'):
         if sentence_words:
-            print("Generating sentence...")
+            print("Generating sentences...")
             generated_sentence = generate_sentence(sentence_words)
-            print(f"Generated: {generated_sentence}")
+            print(f"Generated:\n{generated_sentence}")
         else:
             print("No words to generate from.")
     elif key == 32:  # SPACE

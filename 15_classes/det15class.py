@@ -6,8 +6,8 @@ import mediapipe as mp
 from collections import deque, Counter
 
 # --- PATHS ---
-MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_clean.h5"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_clean.json"
+MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v2.h5"
+LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v2.json"
 
 # --- SETTINGS ---
 CONFIDENCE = 0.80

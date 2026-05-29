@@ -1,0 +1,6 @@
+# Ignore large files 
+__pycache__/ 
+*.h5 
+*.npy 
+*.pkl 
+Dataset/ 

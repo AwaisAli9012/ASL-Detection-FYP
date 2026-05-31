@@ -23,6 +23,7 @@ This project uses the **WLASL (World Level American Sign Language)** dataset —
 - 15 classes selected from 100 extracted classes
 - Hand detection filtering using MediaPipe to remove non-hand frames
 - Data augmentation including horizontal flipping for both hand orientations
+- Balanced augmentation applied — 300 samples per class
 
 ## Supported Signs
 
@@ -31,8 +32,8 @@ This project uses the **WLASL (World Level American Sign Language)** dataset —
 | 1 | help | 6 | finish | 11 | want |
 | 2 | yes | 7 | play | 12 | who |
 | 3 | no | 8 | mother | 13 | family |
-| 4 | drink | 9 | computer | 14 | like |
-| 5 | go | 10 | eat | 15 | enjoy |
+| 4 | before | 9 | computer | 14 | like |
+| 5 | go | 10 | cool | 15 | enjoy |
 
 ## System Architecture
 Webcam Input
@@ -54,8 +55,8 @@ Dual Interpretation Display
 - **Architecture:** Fully connected neural network
 - **Input:** 126 hand landmark coordinates (21 points × 3 axes × 2 hands)
 - **Layers:** Dense(512) → Dense(256) → Dense(128) → Dense(64) → Dense(15)
-- **Training samples:** 2864 (with flipped augmentation)
-- **Validation accuracy:** ~80%
+- **Training samples:** 4500 (balanced augmentation, 300 per class)
+- **Validation accuracy:** ~83%
 - **Training:** EarlyStopping, ReduceLROnPlateau, ModelCheckpoint
 
 ## Project Structure
@@ -130,10 +131,11 @@ python det15class.py
 
 ## Results
 
-- 15 class model achieves ~80% validation accuracy
+- 15 class model achieves ~83% validation accuracy
 - Real-time detection at smooth frame rate
 - Both left and right hand signing supported
-- Groq AI generates natural English sentences from signed words
+- Balanced dataset with 300 samples per class
+- Groq AI generates two natural English sentence interpretations
 
 ## Acknowledgements
 

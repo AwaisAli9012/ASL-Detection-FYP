@@ -141,4 +141,9 @@ python det15class.py
 
 - [WLASL Dataset](https://github.com/dxli94/WLASL) by Dongxu Li et al.
 - [MediaPipe](https://mediapipe.dev/) by Google
-- [Groq API](https://console.groq.com) for AI sentence generation
+- [Groq API](https://console.groq.com) for AI sentence generation 
+## Dataset Download 
+ 
+The preprocessed dataset used in this project is available on Kaggle: 
+ 
+[Download Dataset](https://www.kaggle.com/datasets/awaisali9012/sign-language-dataset) 

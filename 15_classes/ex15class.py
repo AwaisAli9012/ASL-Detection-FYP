@@ -6,12 +6,12 @@ import mediapipe as mp
 
 # --- PATHS ---
 INPUT_DIR   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\frames_20"
-OUTPUT_DIR  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_v3"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v3.json"
+OUTPUT_DIR  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_v4"
+LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v4.json"
 
 # --- CLASSES ---
 CLASSES_15 = [
-    'help', 'yes', 'no', 'before', 'go',
+    'help', 'yes', 'no', 'dog', 'go',
     'finish', 'play', 'mother', 'computer', 'cool',
     'want', 'who', 'family', 'like', 'enjoy'
 ]

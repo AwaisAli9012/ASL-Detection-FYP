@@ -32,7 +32,7 @@ This project uses the **WLASL (World Level American Sign Language)** dataset —
 | 1 | help | 6 | finish | 11 | want |
 | 2 | yes | 7 | play | 12 | who |
 | 3 | no | 8 | mother | 13 | family |
-| 4 | before | 9 | computer | 14 | like |
+| 4 | dog | 9 | computer | 14 | like |
 | 5 | go | 10 | cool | 15 | enjoy |
 
 ## System Architecture

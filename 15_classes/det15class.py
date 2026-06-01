@@ -68,9 +68,9 @@ mp_hands = mp.solutions.hands
 mp_draw  = mp.solutions.drawing_utils
 hands    = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=1,
-    min_detection_confidence=0.8,
-    min_tracking_confidence=0.8
+    max_num_hands=2,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.7
 )
 
 # --- INIT ---
@@ -83,7 +83,9 @@ cap                = cv2.VideoCapture(0)
 print("Controls:")
 print("  ENTER     - Add current word to sentence")
 print("  BACKSPACE - Remove last word from sentence")
-print("  G         - Generate both sentence interpretations and speak")
+print("  G         - Generate both sentence interpretations")
+print("  1         - Speak Self interpretation")
+print("  2         - Speak To interpretation")
 print("  SPACE     - Clear everything")
 print("  Q         - Quit\n")
 
@@ -177,8 +179,8 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
 
     # --- CONTROLS HINT ---
-    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate+Speak  SPACE=Clear  Q=Quit",
-                (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
+    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate  1=Self  2=To  SPACE=Clear  Q=Quit",
+                (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 150, 150), 1)
 
     cv2.imshow("ASL Detection", frame)
 
@@ -201,12 +203,26 @@ while True:
             print("Generating sentences...")
             generated_sentence = generate_sentence(sentence_words)
             print(f"Generated:\n{generated_sentence}")
-            lines = generated_sentence.split('\n')
-            if lines:
-                self_line = lines[0].replace('Self:', '').strip()
-                speak(self_line)
         else:
             print("No words to generate from.")
+    elif key == ord('1'):
+        if generated_sentence:
+            lines = generated_sentence.split('\n')
+            if len(lines) >= 1:
+                self_line = lines[0].replace('Self:', '').strip()
+                print(f"Speaking Self: {self_line}")
+                speak(self_line)
+        else:
+            print("Generate a sentence first with G.")
+    elif key == ord('2'):
+        if generated_sentence:
+            lines = generated_sentence.split('\n')
+            if len(lines) >= 2:
+                to_line = lines[1].replace('To:', '').strip()
+                print(f"Speaking To: {to_line}")
+                speak(to_line)
+        else:
+            print("Generate a sentence first with G.")
     elif key == 32:  # SPACE
         sentence_words.clear()
         generated_sentence = ""

@@ -6,13 +6,14 @@ import mediapipe as mp
 from collections import deque, Counter
 from groq import Groq
 import os
+import pyttsx3
 
 # --- PATHS ---
 MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v3.h5"
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v3.json"
 
 # --- SETTINGS ---
-CONFIDENCE = 0.75
+CONFIDENCE   = 0.75
 SMOOTH       = 25
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
@@ -50,14 +51,26 @@ def generate_sentence(words):
     except Exception as e:
         return f"Error: {str(e)}"
 
+# --- TEXT TO SPEECH SETUP ---
+tts_engine = pyttsx3.init()
+tts_engine.setProperty('rate', 150)
+tts_engine.setProperty('volume', 1.0)
+
+def speak(text):
+    try:
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+    except Exception as e:
+        print(f"TTS Error: {e}")
+
 # --- MEDIAPIPE SETUP ---
 mp_hands = mp.solutions.hands
 mp_draw  = mp.solutions.drawing_utils
 hands    = mp_hands.Hands(
     static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.6,
-    min_tracking_confidence=0.6
+    max_num_hands=1,
+    min_detection_confidence=0.8,
+    min_tracking_confidence=0.8
 )
 
 # --- INIT ---
@@ -70,7 +83,7 @@ cap                = cv2.VideoCapture(0)
 print("Controls:")
 print("  ENTER     - Add current word to sentence")
 print("  BACKSPACE - Remove last word from sentence")
-print("  G         - Generate both sentence interpretations")
+print("  G         - Generate both sentence interpretations and speak")
 print("  SPACE     - Clear everything")
 print("  Q         - Quit\n")
 
@@ -164,7 +177,7 @@ while True:
                 cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
 
     # --- CONTROLS HINT ---
-    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate  SPACE=Clear  Q=Quit",
+    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate+Speak  SPACE=Clear  Q=Quit",
                 (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (150, 150, 150), 1)
 
     cv2.imshow("ASL Detection", frame)
@@ -188,6 +201,10 @@ while True:
             print("Generating sentences...")
             generated_sentence = generate_sentence(sentence_words)
             print(f"Generated:\n{generated_sentence}")
+            lines = generated_sentence.split('\n')
+            if lines:
+                self_line = lines[0].replace('Self:', '').strip()
+                speak(self_line)
         else:
             print("No words to generate from.")
     elif key == 32:  # SPACE

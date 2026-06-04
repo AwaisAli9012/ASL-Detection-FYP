@@ -16,7 +16,7 @@ CLASSES_15 = [
     'want', 'who', 'family', 'like', 'enjoy'
 ]
 
-TARGET_PER_CLASS = 300
+TARGET_PER_CLASS = 400
 
 # --- MEDIAPIPE SETUP ---
 mp_hands = mp.solutions.hands

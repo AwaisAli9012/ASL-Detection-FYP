@@ -115,12 +115,14 @@ while True:
         break
 
     frame  = cv2.flip(frame, 1)
+    frame = cv2.resize(frame, (640, 480))
     cam_h, cam_w = frame.shape[:2]
+    
 
     # --- CANVAS ---
     panel_w  = 420
     canvas_w = cam_w + panel_w
-    canvas_h = cam_h
+    canvas_h = min(cam_h, 480)
     canvas   = np.full((canvas_h, canvas_w, 3), BG_DARK, dtype=np.uint8)
 
     # --- PROCESS FRAME ---

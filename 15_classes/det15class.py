@@ -5,13 +5,6 @@ import tensorflow as tf
 import mediapipe as mp
 from collections import deque, Counter
 from groq import Groq
-import oimport cv2
-import json
-import numpy as np
-import tensorflow as tf
-import mediapipe as mp
-from collections import deque, Counter
-from groq import Groq
 import os
 import pyttsx3
 
@@ -26,7 +19,6 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # --- COLORS ---
 BG_DARK      = (18, 18, 18)
-BG_PANEL     = (28, 28, 28)
 BG_CARD      = (38, 38, 38)
 ACCENT_GREEN = (0, 220, 100)
 ACCENT_BLUE  = (100, 180, 255)
@@ -112,7 +104,7 @@ current_word       = "..."
 current_conf       = 0.0
 cap                = cv2.VideoCapture(0)
 
-FONT = cv2.FONT_HERSHEY_SIMPLEX
+FONT      = cv2.FONT_HERSHEY_SIMPLEX
 FONT_BOLD = cv2.FONT_HERSHEY_DUPLEX
 
 print("Controls: ENTER=Add | BKSP=Remove | G=Generate | 1=Speak Self | 2=Speak To | SPACE=Clear | Q=Quit")
@@ -126,10 +118,10 @@ while True:
     cam_h, cam_w = frame.shape[:2]
 
     # --- CANVAS ---
-    panel_w = 420
+    panel_w  = 420
     canvas_w = cam_w + panel_w
     canvas_h = cam_h
-    canvas = np.full((canvas_h, canvas_w, 3), BG_DARK, dtype=np.uint8)
+    canvas   = np.full((canvas_h, canvas_w, 3), BG_DARK, dtype=np.uint8)
 
     # --- PROCESS FRAME ---
     rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -179,8 +171,8 @@ while True:
     # --- STATUS DOT ---
     dot_color = ACCENT_GREEN if hand_detected else (0, 0, 200)
     cv2.circle(canvas, (20, 20), 8, dot_color, -1)
-    status_text = "Hand Detected" if hand_detected else "No Hand"
-    cv2.putText(canvas, status_text, (35, 25), FONT, 0.5, dot_color, 1, cv2.LINE_AA)
+    cv2.putText(canvas, "Hand Detected" if hand_detected else "No Hand",
+                (35, 25), FONT, 0.5, dot_color, 1, cv2.LINE_AA)
 
     # --- RIGHT PANEL ---
     px = cam_w + 10
@@ -197,8 +189,8 @@ while True:
 
     if hand_detected and current_conf >= CONFIDENCE:
         put_text_centered(canvas, current_word, px + pw//2, 135, FONT_BOLD, 1.2, ACCENT_GREEN, 2)
-        conf_text = f"{current_conf*100:.1f}% confidence"
-        put_text_centered(canvas, conf_text, px + pw//2, 152, FONT, 0.4, TEXT_GRAY, 1)
+        put_text_centered(canvas, f"{current_conf*100:.1f}% confidence",
+                          px + pw//2, 152, FONT, 0.4, TEXT_GRAY, 1)
     else:
         put_text_centered(canvas, current_word, px + pw//2, 135, FONT_BOLD, 1.0, TEXT_DIM, 2)
 
@@ -209,60 +201,47 @@ while True:
         bar_w = pw - 20
         bar_h = 6
         cv2.rectangle(canvas, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), BG_CARD, -1)
-        filled = int(bar_w * current_conf)
+        filled    = int(bar_w * current_conf)
         bar_color = ACCENT_GREEN if current_conf >= CONFIDENCE else (0, 100, 200)
         cv2.rectangle(canvas, (bar_x, bar_y), (bar_x + filled, bar_y + bar_h), bar_color, -1)
 
-    # Sentence Card
+    # Signed Words Card
     cv2.putText(canvas, "SIGNED WORDS", (px, 185), FONT, 0.4, TEXT_GRAY, 1, cv2.LINE_AA)
     draw_rounded_rect(canvas, px, 192, px + pw, 240, BG_CARD, radius=8)
-    sentence_text = " ".join(sentence_words) if sentence_words else "No words yet..."
+    sentence_text  = " ".join(sentence_words) if sentence_words else "No words yet..."
     sentence_color = TEXT_WHITE if sentence_words else TEXT_DIM
-
-    # Word wrap for sentence
-    words_display = sentence_text
-    if len(words_display) > 28:
-        words_display = words_display[:25] + "..."
+    words_display  = sentence_text if len(sentence_text) <= 28 else sentence_text[:25] + "..."
     put_text_centered(canvas, words_display, px + pw//2, 222, FONT, 0.6, sentence_color, 1)
+    cv2.putText(canvas, f"{len(sentence_words)} word(s)", (px + 10, 237), FONT, 0.35, TEXT_GRAY, 1, cv2.LINE_AA)
 
-    word_count_text = f"{len(sentence_words)} word(s)"
-    cv2.putText(canvas, word_count_text, (px + 10, 237), FONT, 0.35, TEXT_GRAY, 1, cv2.LINE_AA)
-
-    # AI Sentence Card
+    # AI Interpretation Card
     cv2.putText(canvas, "AI INTERPRETATION", (px, 260), FONT, 0.4, TEXT_GRAY, 1, cv2.LINE_AA)
-    draw_rounded_rect(canvas, px, 267, px + pw, 380, BG_CARD, radius=8)
+    draw_rounded_rect(canvas, px, 267, px + pw, 390, BG_CARD, radius=8)
 
     if generated_sentence:
         lines = generated_sentence.split('\n')
         if len(lines) >= 1:
             cv2.putText(canvas, "Self:", (px + 10, 290), FONT, 0.4, ACCENT_GREEN, 1, cv2.LINE_AA)
-            self_text = lines[0].replace('Self:', '').strip()
-            # Word wrap
-            words_s = self_text.split()
-            line1 = ' '.join(words_s[:5])
-            line2 = ' '.join(words_s[5:])
-            cv2.putText(canvas, line1, (px + 10, 308), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
-            if line2:
-                cv2.putText(canvas, line2, (px + 10, 324), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
+            self_text = lines[0].replace('Self:', '').strip().split()
+            cv2.putText(canvas, ' '.join(self_text[:5]), (px + 10, 308), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
+            if len(self_text) > 5:
+                cv2.putText(canvas, ' '.join(self_text[5:]), (px + 10, 324), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
 
         cv2.line(canvas, (px + 10, 335), (px + pw - 10, 335), BORDER, 1)
 
         if len(lines) >= 2:
             cv2.putText(canvas, "To:", (px + 10, 352), FONT, 0.4, ACCENT_GOLD, 1, cv2.LINE_AA)
-            to_text = lines[1].replace('To:', '').strip()
-            words_t = to_text.split()
-            line1t = ' '.join(words_t[:5])
-            line2t = ' '.join(words_t[5:])
-            cv2.putText(canvas, line1t, (px + 10, 370), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
-            if line2t:
-                cv2.putText(canvas, line2t, (px + 10, 386), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
+            to_text = lines[1].replace('To:', '').strip().split()
+            cv2.putText(canvas, ' '.join(to_text[:5]), (px + 10, 370), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
+            if len(to_text) > 5:
+                cv2.putText(canvas, ' '.join(to_text[5:]), (px + 10, 386), FONT, 0.42, TEXT_WHITE, 1, cv2.LINE_AA)
     else:
         put_text_centered(canvas, "Press G to generate", px + pw//2, 315, FONT, 0.45, TEXT_DIM, 1)
         put_text_centered(canvas, "AI interpretation", px + pw//2, 335, FONT, 0.45, TEXT_DIM, 1)
 
     # Controls Card
-    cv2.putText(canvas, "CONTROLS", (px, 400), FONT, 0.4, TEXT_GRAY, 1, cv2.LINE_AA)
-    draw_rounded_rect(canvas, px, 407, px + pw, canvas_h - 10, BG_CARD, radius=8)
+    cv2.putText(canvas, "CONTROLS", (px, 408), FONT, 0.4, TEXT_GRAY, 1, cv2.LINE_AA)
+    draw_rounded_rect(canvas, px, 415, px + pw, canvas_h - 10, BG_CARD, radius=8)
 
     controls = [
         ("ENTER", "Add word to sentence"),
@@ -274,15 +253,15 @@ while True:
         ("Q",     "Quit"),
     ]
 
-    for i, (key, desc) in enumerate(controls):
-        y = 425 + i * 26
+    for i, (k, desc) in enumerate(controls):
+        y = 433 + i * 26
         draw_rounded_rect(canvas, px + 8, y - 13, px + 55, y + 5, BG_DARK, radius=4)
-        cv2.putText(canvas, key, (px + 12, y), FONT, 0.38, ACCENT_BLUE, 1, cv2.LINE_AA)
+        cv2.putText(canvas, k, (px + 12, y), FONT, 0.38, ACCENT_BLUE, 1, cv2.LINE_AA)
         cv2.putText(canvas, desc, (px + 62, y), FONT, 0.38, TEXT_GRAY, 1, cv2.LINE_AA)
 
-    # Classes indicator
-    classes_text = f"Model: 15 ASL Classes | Accuracy: 83.5%"
-    cv2.putText(canvas, classes_text, (10, cam_h - 10), FONT, 0.38, TEXT_DIM, 1, cv2.LINE_AA)
+    # Footer
+    cv2.putText(canvas, "Model: 15 ASL Classes | Accuracy: 83.5%",
+                (10, cam_h - 10), FONT, 0.38, TEXT_DIM, 1, cv2.LINE_AA)
 
     cv2.imshow("ASL Sign Language Detection System", canvas)
 
@@ -310,234 +289,7 @@ while True:
     elif key == ord('1'):
         if generated_sentence:
             lines = generated_sentence.split('\n')
-            if len(lines) >= 1:
-                self_line = lines[0].replace('Self:', '').strip()
-                print(f"Speaking Self: {self_line}")
-                speak(self_line)
-        else:
-            print("Generate a sentence first with G.")
-    elif key == ord('2'):
-        if generated_sentence:
-            lines = generated_sentence.split('\n')
-            if len(lines) >= 2:
-                to_line = lines[1].replace('To:', '').strip()
-                print(f"Speaking To: {to_line}")
-                speak(to_line)
-        else:
-            print("Generate a sentence first with G.")
-    elif key == 32:  # SPACE
-        sentence_words.clear()
-        generated_sentence = ""
-        print("Cleared.")
-
-cap.release()
-cv2.destroyAllWindows()
-hands.close()
-print("Detection stopped.")
-print(f"Final words: {' '.join(sentence_words)}")s
-import pyttsx3
-
-# --- PATHS ---
-MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4.h5"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v4.json"
-
-# --- SETTINGS ---
-CONFIDENCE   = 0.75
-SMOOTH       = 25
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
-# --- LOAD MODEL ---
-print("Loading model...")
-model = tf.keras.models.load_model(MODEL_PATH)
-
-with open(LABELS_PATH, 'r') as f:
-    labels = json.load(f)
-
-print(f"Model loaded - {len(labels)} classes")
-print(f"Classes: {labels}\n")
-
-# --- GROQ SETUP ---
-groq_client        = Groq(api_key=GROQ_API_KEY)
-generated_sentence = ""
-
-def generate_sentence(words):
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an ASL interpreter. Given ASL signs, provide exactly 2 interpretations on separate lines. Line 1 must start with 'Self:' and show first person meaning. Line 2 must start with 'To:' and show instruction meaning. Reply with only these 2 lines, nothing else."
-                },
-                {
-                    "role": "user",
-                    "content": f"ASL signs in order: {', '.join(words)}"
-                }
-            ],
-            max_tokens=80
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-# --- TEXT TO SPEECH SETUP ---
-tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)
-tts_engine.setProperty('volume', 1.0)
-
-def speak(text):
-    try:
-        tts_engine.say(text)
-        tts_engine.runAndWait()
-    except Exception as e:
-        print(f"TTS Error: {e}")
-
-# --- MEDIAPIPE SETUP ---
-mp_hands = mp.solutions.hands
-mp_draw  = mp.solutions.drawing_utils
-hands    = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7
-)
-
-# --- INIT ---
-prediction_buffer  = deque(maxlen=SMOOTH)
-sentence_words     = []
-current_word       = "..."
-current_conf       = 0.0
-cap                = cv2.VideoCapture(0)
-
-print("Controls:")
-print("  ENTER     - Add current word to sentence")
-print("  BACKSPACE - Remove last word from sentence")
-print("  G         - Generate both sentence interpretations")
-print("  1         - Speak Self interpretation")
-print("  2         - Speak To interpretation")
-print("  SPACE     - Clear everything")
-print("  Q         - Quit\n")
-
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    frame  = cv2.flip(frame, 1)
-    h, w   = frame.shape[:2]
-    rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
-
-    hand_detected = False
-
-    if result.multi_hand_landmarks:
-        hand_detected = True
-
-        for hand_lm in result.multi_hand_landmarks:
-            mp_draw.draw_landmarks(
-                frame, hand_lm, mp_hands.HAND_CONNECTIONS,
-                mp_draw.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
-            )
-
-        keypoints = []
-        for hand_idx in range(2):
-            if hand_idx < len(result.multi_hand_landmarks):
-                lm = result.multi_hand_landmarks[hand_idx]
-                for point in lm.landmark:
-                    keypoints.extend([point.x, point.y, point.z])
-            else:
-                keypoints.extend([0.0] * 63)
-
-        inp        = np.array(keypoints).reshape(1, -1)
-        preds      = model.predict(inp, verbose=0)[0]
-        confidence = float(np.max(preds))
-        class_idx  = int(np.argmax(preds))
-
-        if confidence >= CONFIDENCE:
-            prediction_buffer.append(class_idx)
-
-        if prediction_buffer:
-            smoothed_idx = Counter(prediction_buffer).most_common(1)[0][0]
-            current_word = labels[smoothed_idx].upper()
-            current_conf = confidence
-
-    else:
-        prediction_buffer.clear()
-        current_conf = 0.0
-
-    # --- TOP BAR - SIGNED WORDS ---
-    cv2.rectangle(frame, (0, 0), (w, 55), (20, 20, 20), -1)
-    sentence_text = " ".join(sentence_words) if sentence_words else "Press ENTER to add word..."
-    cv2.putText(frame, sentence_text, (10, 38),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-
-    # --- SECOND BAR - GENERATED SENTENCES ---
-    cv2.rectangle(frame, (0, 55), (w, 140), (10, 10, 40), -1)
-    if generated_sentence:
-        lines = generated_sentence.split('\n')
-        line1 = lines[0] if len(lines) > 0 else ""
-        line2 = lines[1] if len(lines) > 1 else ""
-        cv2.putText(frame, line1, (10, 85),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 200), 2)
-        cv2.putText(frame, line2, (10, 125),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 200, 0), 2)
-    else:
-        cv2.putText(frame, "Press G to generate sentence...", (10, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (150, 150, 150), 2)
-
-    # --- MIDDLE BAR - HAND COUNT ---
-    cv2.rectangle(frame, (0, 140), (w, 180), (0, 0, 0), -1)
-    hand_count = len(result.multi_hand_landmarks) if result.multi_hand_landmarks else 0
-    cv2.putText(frame, f"Hands: {hand_count}", (10, 168),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8,
-                (0, 255, 0) if hand_detected else (0, 0, 255), 2)
-    cv2.putText(frame, "15 Classes | ASL Detection", (w - 320, 168),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-
-    # --- BOTTOM BAR - CURRENT WORD ---
-    cv2.rectangle(frame, (0, h - 80), (w, h), (0, 0, 0), -1)
-    if hand_detected and current_conf >= CONFIDENCE:
-        label_text = f"{current_word}  ({current_conf*100:.1f}%)"
-        color = (0, 255, 0)
-    else:
-        label_text = current_word
-        color = (0, 165, 255)
-
-    cv2.putText(frame, label_text, (20, h - 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.4, color, 3)
-
-    # --- CONTROLS HINT ---
-    cv2.putText(frame, "ENTER=Add  BKSP=Remove  G=Generate  1=Self  2=To  SPACE=Clear  Q=Quit",
-                (10, h - 88), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (150, 150, 150), 1)
-
-    cv2.imshow("ASL Detection", frame)
-
-    key = cv2.waitKey(1) & 0xFF
-
-    if key == ord('q'):
-        break
-    elif key == 13:  # ENTER
-        if current_word not in ["...", "No hand detected"]:
-            sentence_words.append(current_word)
-            generated_sentence = ""
-            print(f"Added: {current_word} | Words: {' '.join(sentence_words)}")
-    elif key == 8:   # BACKSPACE
-        if sentence_words:
-            removed = sentence_words.pop()
-            generated_sentence = ""
-            print(f"Removed: {removed} | Words: {' '.join(sentence_words)}")
-    elif key == ord('g'):
-        if sentence_words:
-            print("Generating sentences...")
-            generated_sentence = generate_sentence(sentence_words)
-            print(f"Generated:\n{generated_sentence}")
-        else:
-            print("No words to generate from.")
-    elif key == ord('1'):
-        if generated_sentence:
-            lines = generated_sentence.split('\n')
-            if len(lines) >= 1:
+            if lines:
                 self_line = lines[0].replace('Self:', '').strip()
                 print(f"Speaking Self: {self_line}")
                 speak(self_line)

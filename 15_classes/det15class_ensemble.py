@@ -1,5 +1,6 @@
 import cv2
 import json
+import pickle
 import numpy as np
 import tensorflow as tf
 import mediapipe as mp
@@ -7,15 +8,21 @@ from collections import deque, Counter
 from groq import Groq
 import os
 import pyttsx3
+import threading
 
 # --- PATHS ---
-MODEL_PATH  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4.h5"
+NN_PATH     = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_ensemble_nn.h5"
+RF_PATH     = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_rf.pkl"
+META_PATH   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_meta.pkl"
 LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v4.json"
 
 # --- SETTINGS ---
 CONFIDENCE   = 0.75
 SMOOTH       = 25
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
+# Ensemble mode: "soft_vote" | "stacking"
+ENSEMBLE_MODE = "stacking"
 
 # --- COLORS ---
 BG_DARK      = (18, 18, 18)
@@ -28,18 +35,43 @@ TEXT_GRAY    = (150, 150, 150)
 TEXT_DIM     = (80, 80, 80)
 BORDER       = (60, 60, 60)
 
-# --- LOAD MODEL ---
-print("Loading model...")
-model = tf.keras.models.load_model(MODEL_PATH)
+# --- LOAD ENSEMBLE MODELS ---
+print("Loading ensemble models...")
+nn_model   = tf.keras.models.load_model(NN_PATH)
+rf_model   = pickle.load(open(RF_PATH,   'rb'))
+meta_model = pickle.load(open(META_PATH, 'rb'))
+
 with open(LABELS_PATH, 'r') as f:
     labels = json.load(f)
-print(f"Model loaded - {len(labels)} classes")
+
+print(f"Ensemble loaded - {len(labels)} classes | mode: {ENSEMBLE_MODE}")
+
+
+# --- ENSEMBLE PREDICT ---
+def ensemble_predict(keypoints_1d):
+    x = tf.convert_to_tensor(keypoints_1d.reshape(1, -1), dtype=tf.float32)
+    nn_probs = nn_model(x, training=False).numpy()[0]
+    rf_probs = rf_model.predict_proba(keypoints_1d.reshape(1, -1))[0]
+
+    if ENSEMBLE_MODE == "stacking":
+        stack = np.hstack([nn_probs, rf_probs]).reshape(1, -1)
+        probs = meta_model.predict_proba(stack)[0]
+    else:  # soft_vote
+        probs = (nn_probs + rf_probs) / 2.0
+
+    return int(np.argmax(probs)), float(np.max(probs))
+
 
 # --- GROQ SETUP ---
-groq_client        = Groq(api_key=GROQ_API_KEY)
+if GROQ_API_KEY:
+    groq_client = Groq(api_key=GROQ_API_KEY)
+else:
+    groq_client = None
 generated_sentence = ""
 
 def generate_sentence(words):
+    if not groq_client:
+        return "Error: GROQ_API_KEY environment variable missing."
     try:
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -53,17 +85,27 @@ def generate_sentence(words):
     except Exception as e:
         return f"Error: {str(e)}"
 
-# --- TTS ---
-tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)
-tts_engine.setProperty('volume', 1.0)
+
+# --- THREADED TTS ---
+tts_lock = threading.Lock()
 
 def speak(text):
-    try:
-        tts_engine.say(text)
-        tts_engine.runAndWait()
-    except Exception as e:
-        print(f"TTS Error: {e}")
+    if not text.strip():
+        return
+        
+    def tts_worker(phrase):
+        with tts_lock:
+            try:
+                engine = pyttsx3.init()
+                engine.setProperty('rate', 150)
+                engine.setProperty('volume', 1.0)
+                engine.say(phrase)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"TTS Thread Error: {e}")
+
+    threading.Thread(target=tts_worker, args=(text,), daemon=True).start()
+
 
 # --- MEDIAPIPE ---
 mp_hands = mp.solutions.hands
@@ -74,6 +116,7 @@ hands    = mp_hands.Hands(
     min_detection_confidence=0.7,
     min_tracking_confidence=0.7
 )
+
 
 # --- HELPERS ---
 def draw_rounded_rect(img, x1, y1, x2, y2, color, radius=10, thickness=-1):
@@ -93,7 +136,7 @@ def put_text_centered(img, text, cx, y, font, scale, color, thickness=1):
     cv2.putText(img, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
 
 def wrap_text(text, max_chars):
-    """Split text into lines of max_chars width."""
+    max_chars = max(1, max_chars)
     words = text.split()
     lines, current = [], ""
     for w in words:
@@ -107,21 +150,26 @@ def wrap_text(text, max_chars):
         lines.append(current)
     return lines if lines else [""]
 
+
 # --- INIT ---
 prediction_buffer = deque(maxlen=SMOOTH)
 sentence_words    = []
 current_word      = "..."
+last_valid_word   = "..."  # Memory snapshot to hold key inputs when hand drops out
 current_conf      = 0.0
 cap               = cv2.VideoCapture(0)
 
 FONT      = cv2.FONT_HERSHEY_SIMPLEX
 FONT_BOLD = cv2.FONT_HERSHEY_DUPLEX
 
-WIN_NAME = "ASL Sign Language Detection System"
+WIN_NAME = "ASL Ensemble Detection System"
 cv2.namedWindow(WIN_NAME, cv2.WINDOW_NORMAL)
-cv2.resizeWindow(WIN_NAME, 1280, 720)   # default launch size
+cv2.resizeWindow(WIN_NAME, 1280, 720)
 
-print("Controls: ENTER=Add | BKSP=Remove | G=Generate | 1=Speak Self | 2=Speak To | SPACE=Clear | Q=Quit")
+self_text = ""
+to_text = ""
+
+print("Controls: ENTER=Add | BKSP=Remove | G=AI Generate | SPACE=Clear All | Q=Quit")
 
 while True:
     ret, frame = cap.read()
@@ -130,38 +178,32 @@ while True:
 
     frame = cv2.flip(frame, 1)
 
-    # ── Get current window size ──────────────────────────────────────────────
     _, _, win_w, win_h = cv2.getWindowImageRect(WIN_NAME)
-    if win_w < 100 or win_h < 100:   # guard against minimised state
-        cv2.waitKey(30)
-        continue
+    if win_w < 100 or win_h < 100:
+        win_w, win_h = 1280, 720
+    
+    win_w, win_h = max(win_w, 640), max(win_h, 480)
 
-    # ── Layout constants (all derived from window size) ──────────────────────
-    PANEL_RATIO = 0.35           # right panel = 35% of total width
+    PANEL_RATIO = 0.35
     panel_w  = int(win_w * PANEL_RATIO)
     cam_w    = win_w - panel_w
     cam_h    = win_h
 
-    S = win_h / 720.0            # universal scale factor  (720 p = 1.0)
+    S     = win_h / 720.0
     PAD   = int(12 * S)
-    INNER = panel_w - 2 * PAD   # usable panel width
+    INNER = panel_w - 2 * PAD
 
-    # font scales
     fs_title  = max(0.5,  0.9  * S)
     fs_sub    = max(0.35, 0.5  * S)
     fs_sign   = max(0.6,  1.3  * S)
     fs_normal = max(0.35, 0.55 * S)
     fs_small  = max(0.28, 0.42 * S)
 
-    lh = int(22 * S)   # standard line height
+    lh = int(22 * S)
 
-    # ── Resize camera frame to fit its slot ─────────────────────────────────
     frame_resized = cv2.resize(frame, (cam_w, cam_h))
-
-    # ── Build canvas ────────────────────────────────────────────────────────
     canvas = np.full((win_h, win_w, 3), BG_DARK, dtype=np.uint8)
 
-    # ── Process hands ───────────────────────────────────────────────────────
     rgb    = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
     result = hands.process(rgb)
     hand_detected = False
@@ -184,27 +226,29 @@ while True:
             else:
                 keypoints.extend([0.0] * 63)
 
-        inp        = np.array(keypoints).reshape(1, -1)
-        preds      = model.predict(inp, verbose=0)[0]
-        confidence = float(np.max(preds))
-        class_idx  = int(np.argmax(preds))
+        class_idx, confidence = ensemble_predict(np.array(keypoints, dtype=np.float32))
 
         if confidence >= CONFIDENCE:
             prediction_buffer.append(class_idx)
 
         if prediction_buffer:
             smoothed_idx = Counter(prediction_buffer).most_common(1)[0][0]
-            current_word = labels[smoothed_idx].upper()
+            
+            if isinstance(labels, list):
+                current_word = labels[smoothed_idx].upper()
+            else:
+                current_word = labels[str(smoothed_idx)].upper()
+                
             current_conf = confidence
+            last_valid_word = current_word  # Save persistent snapshot of the last made sign
     else:
         prediction_buffer.clear()
         current_conf = 0.0
+        current_word = "..."
 
-    # ── Place webcam ─────────────────────────────────────────────────────────
     canvas[0:cam_h, 0:cam_w] = frame_resized
     cv2.rectangle(canvas, (0, 0), (cam_w - 1, cam_h - 1), BORDER, 2)
 
-    # ── Status dot ───────────────────────────────────────────────────────────
     dot_r = max(6, int(8 * S))
     dot_x, dot_y = dot_r + 8, dot_r + 8
     dot_color = ACCENT_GREEN if hand_detected else (0, 0, 200)
@@ -212,22 +256,17 @@ while True:
     cv2.putText(canvas, "Hand Detected" if hand_detected else "No Hand",
                 (dot_x + dot_r + 6, dot_y + int(5*S)), FONT, fs_small, dot_color, 1, cv2.LINE_AA)
 
-    # ── RIGHT PANEL ──────────────────────────────────────────────────────────
-    px  = cam_w + PAD          # left edge of content inside panel
-    px2 = cam_w + PAD + INNER  # right edge
+    px  = cam_w + PAD
+    px2 = cam_w + PAD + INNER
+    cy  = int(30 * S)
 
-    # Running vertical cursor
-    cy = int(30 * S)
-
-    # Title
     cv2.putText(canvas, "ASL DETECTION", (px, cy), FONT_BOLD, fs_title, ACCENT_BLUE, max(1,int(2*S)), cv2.LINE_AA)
     cy += int(22 * S)
-    cv2.putText(canvas, "Sign Language to Text System", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"Ensemble: NN + Random Forest", (px, cy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
     cy += int(10 * S)
     cv2.line(canvas, (px, cy), (px2, cy), BORDER, 1)
     cy += int(14 * S)
 
-    # ── Current Sign card ────────────────────────────────────────────────────
     cv2.putText(canvas, "CURRENT SIGN", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
     card_h = int(70 * S)
@@ -235,16 +274,22 @@ while True:
 
     mid_x  = px + INNER // 2
     sign_y = cy + int(45 * S)
+    
     if hand_detected and current_conf >= CONFIDENCE:
         put_text_centered(canvas, current_word, mid_x, sign_y, FONT_BOLD, fs_sign, ACCENT_GREEN, max(1,int(2*S)))
         put_text_centered(canvas, f"{current_conf*100:.1f}% confidence",
                           mid_x, cy + card_h - int(6*S), FONT, fs_small, TEXT_GRAY, 1)
     else:
-        put_text_centered(canvas, current_word, mid_x, sign_y, FONT_BOLD, fs_normal, TEXT_DIM, max(1,int(2*S)))
+        # Usability Upgrade: If hand is down but a valid staged sign exists, keep it visible
+        if last_valid_word != "...":
+            put_text_centered(canvas, last_valid_word, mid_x, sign_y, FONT_BOLD, fs_sign, ACCENT_BLUE, max(1,int(2*S)))
+            put_text_centered(canvas, "STAGED - Press ENTER to Add",
+                              mid_x, cy + card_h - int(6*S), FONT, fs_small, ACCENT_BLUE, 1)
+        else:
+            put_text_centered(canvas, "...", mid_x, sign_y, FONT_BOLD, fs_normal, TEXT_DIM, max(1,int(2*S)))
 
     cy += card_h + int(6 * S)
 
-    # Confidence bar
     if hand_detected and current_conf > 0:
         bar_h_px = max(4, int(6 * S))
         cv2.rectangle(canvas, (px, cy), (px2, cy + bar_h_px), BG_CARD, -1)
@@ -255,7 +300,6 @@ while True:
 
     cy += int(16 * S)
 
-    # ── Signed Words card ────────────────────────────────────────────────────
     cv2.putText(canvas, "SIGNED WORDS", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
     card_h2 = int(55 * S)
@@ -273,55 +317,50 @@ while True:
 
     cy += card_h2 + int(16 * S)
 
-    # ── AI Interpretation card ───────────────────────────────────────────────
     cv2.putText(canvas, "AI INTERPRETATION", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
-    ai_top  = cy
+    ai_top    = cy
     ai_card_h = int(140 * S)
     draw_rounded_rect(canvas, px, ai_top, px2, ai_top + ai_card_h, BG_CARD, radius=max(4,int(8*S)))
 
     if generated_sentence:
-        lines = generated_sentence.split('\n')
-        iy    = ai_top + int(20 * S)
+        iy = ai_top + int(20 * S)
         max_ai_chars = max(10, int(INNER / (fs_normal * 11)))
 
-        if len(lines) >= 1:
-            cv2.putText(canvas, "Self:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GREEN, 1, cv2.LINE_AA)
+        cv2.putText(canvas, "Self:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GREEN, 1, cv2.LINE_AA)
+        iy += lh
+        self_lines = wrap_text(self_text, max_ai_chars)
+        for sl in self_lines[:3]:
+            cv2.putText(canvas, sl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
             iy += lh
-            self_lines = wrap_text(lines[0].replace('Self:', '').strip(), max_ai_chars)
-            for sl in self_lines[:3]:
-                cv2.putText(canvas, sl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
-                iy += lh
 
         sep_y = ai_top + int(70 * S)
         cv2.line(canvas, (px + int(8*S), sep_y), (px2 - int(8*S), sep_y), BORDER, 1)
         iy = sep_y + int(16 * S)
 
-        if len(lines) >= 2:
-            cv2.putText(canvas, "To:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
+        cv2.putText(canvas, "To:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
+        iy += lh
+        to_lines = wrap_text(to_text, max_ai_chars)
+        for tl in to_lines[:3]:
+            cv2.putText(canvas, tl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
             iy += lh
-            to_lines = wrap_text(lines[1].replace('To:', '').strip(), max_ai_chars)
-            for tl in to_lines[:3]:
-                cv2.putText(canvas, tl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
-                iy += lh
     else:
         put_text_centered(canvas, "Press G to generate",  mid_x, ai_top + int(55*S), FONT, fs_normal, TEXT_DIM, 1)
         put_text_centered(canvas, "AI interpretation",    mid_x, ai_top + int(55*S) + lh, FONT, fs_normal, TEXT_DIM, 1)
 
     cy = ai_top + ai_card_h + int(16 * S)
 
-    # ── Controls card ────────────────────────────────────────────────────────
     controls = [
-        ("ENTER", "Add word"),
-        ("BKSP",  "Remove last"),
+        ("ENTER", "Add last sign"),
+        ("BKSP",  "Remove last word"),
         ("G",     "AI Generate"),
         ("1",     "Speak Self"),
         ("2",     "Speak To"),
-        ("SPACE", "Clear"),
+        ("SPACE", "Clear All"),
         ("Q",     "Quit"),
     ]
 
-    remaining_h = win_h - cy - int(30 * S)   # space left for controls
+    remaining_h = win_h - cy - int(30 * S)
     if remaining_h > int(30 * S):
         cv2.putText(canvas, "CONTROLS", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
         cy += int(8 * S)
@@ -334,12 +373,11 @@ while True:
             if ky + row_h > cy + ctrl_card_h:
                 break
             draw_rounded_rect(canvas, px + int(6*S), ky - int(12*S),
-                               px + int(6*S) + key_w, ky + int(4*S), BG_DARK, radius=4)
+                              px + int(6*S) + key_w, ky + int(4*S), BG_DARK, radius=4)
             cv2.putText(canvas, k,    (px + int(10*S), ky), FONT, fs_small, ACCENT_BLUE, 1, cv2.LINE_AA)
             cv2.putText(canvas, desc, (px + int(6*S) + key_w + int(8*S), ky), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
 
-    # ── Footer ───────────────────────────────────────────────────────────────
-    cv2.putText(canvas, "Model: 15 ASL Classes | Accuracy: 83.5%",
+    cv2.putText(canvas, f"Model: Ensemble (NN + RF) | Mode: {ENSEMBLE_MODE} | 15 Classes",
                 (int(8*S), win_h - int(8*S)), FONT, fs_small, TEXT_DIM, 1, cv2.LINE_AA)
 
     cv2.imshow(WIN_NAME, canvas)
@@ -347,34 +385,56 @@ while True:
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         break
-    elif key == 13:
-        if current_word not in ["...", "No hand detected"]:
-            sentence_words.append(current_word)
+    elif key == 13: # ENTER
+        # Inputs according to your command: locks in the persistent memory snapshot of the last sign made
+        if last_valid_word != "...":
+            sentence_words.append(last_valid_word)
+            print(f"Inputted Sign: {last_valid_word} | Sequence: {' '.join(sentence_words)}")
+            last_valid_word = "..." # Clears snapshot cache so you must perform another sign before adding again
             generated_sentence = ""
-            print(f"Added: {current_word} | Words: {' '.join(sentence_words)}")
-    elif key == 8:
+            self_text = ""
+            to_text = ""
+    elif key == 8: # BACKSPACE
+        # Removes the last sign added to your input list
         if sentence_words:
             removed = sentence_words.pop()
             generated_sentence = ""
-            print(f"Removed: {removed}")
+            self_text = ""
+            to_text = ""
+            print(f"Removed Last Input: {removed}")
     elif key == ord('g'):
         if sentence_words:
             print("Generating...")
             generated_sentence = generate_sentence(sentence_words)
             print(f"Generated:\n{generated_sentence}")
+            
+            lines = [line.strip() for line in generated_sentence.split('\n') if line.strip()]
+            self_text = ""
+            to_text = ""
+            for line in lines:
+                if line.lower().startswith("self:"):
+                    self_text = line.replace('Self:', '', 1).replace('self:', '', 1).strip()
+                elif line.lower().startswith("to:"):
+                    to_text = line.replace('To:', '', 1).replace('to:', '', 1).strip()
+            
+            if not self_text and len(lines) >= 1: 
+                self_text = lines[0].replace('Self:', '', 1).replace('self:', '', 1).strip()
+            if not to_text and len(lines) >= 2: 
+                to_text = lines[1].replace('To:', '', 1).replace('to:', '', 1).strip()
     elif key == ord('1'):
-        if generated_sentence:
-            lines = generated_sentence.split('\n')
-            speak(lines[0].replace('Self:', '').strip())
+        if generated_sentence and self_text:
+            speak(self_text)
     elif key == ord('2'):
-        if generated_sentence:
-            lines = generated_sentence.split('\n')
-            if len(lines) >= 2:
-                speak(lines[1].replace('To:', '').strip())
-    elif key == 32:
+        if generated_sentence and to_text:
+            speak(to_text)
+    elif key == 32: # SPACE
+        # Completely resets the system arrays according to inputs
         sentence_words.clear()
+        last_valid_word = "..."
         generated_sentence = ""
-        print("Cleared.")
+        self_text = ""
+        to_text = ""
+        print("Cleared all inputs.")
 
 cap.release()
 cv2.destroyAllWindows()

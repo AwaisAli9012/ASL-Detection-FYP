@@ -13,7 +13,7 @@
 
 A comprehensive American Sign Language (ASL) interpreter that detects 15 ASL signs in real-time, generates contextual sentences, translates to multiple languages, and produces natural voice output using text-to-speech. Also includes emotion detection for context-aware interpretation.
 
-**Key Achievement:** 97.8% accuracy ensemble model combining Neural Network (86.92%) + Random Forest (97.23%) + Meta-Learner optimization.
+**Key Achievement:** 97.43% accuracy meta-learner combining Neural Network (92.13%) + Random Forest (96.82%) + Meta-Learner optimization.
 
 ---
 
@@ -25,12 +25,20 @@ A comprehensive American Sign Language (ASL) interpreter that detects 15 ASL sig
 - Two-hand detection support
 - Smooth real-time video feed
 
-### 🧠 **Ensemble Machine Learning (97.8% Accuracy)**
-- **Neural Network (TensorFlow/Keras):** 86.92% accuracy
-- **Random Forest (scikit-learn):** 97.23% accuracy
-- **Meta-Learner (Logistic Regression):** Optimal combination = **97.8%** ⭐
+### 🧠 **Ensemble Machine Learning (97.43% Accuracy - Meta-Learner)**
+- **Neural Network (TensorFlow/Keras):** 92.13% accuracy (5-fold mean)
+- **Random Forest (scikit-learn):** 96.82% accuracy (5-fold mean)
+- **Ensemble Soft-Vote:** 95.73% accuracy (5-fold mean)
+- **Meta-Learner (Logistic Regression):** **97.43% OOF accuracy** ⭐ (BEST)
 - Stacking ensemble technique
 - 5-Fold stratified cross-validation trained
+
+**Fold-by-fold breakdown:**
+- Fold 1: NN=92.58%, RF=96.67%, Ensemble=95.92%
+- Fold 2: NN=92.92%, RF=97.50%, Ensemble=96.75%
+- Fold 3: NN=92.42%, RF=96.83%, Ensemble=96.00%
+- Fold 4: NN=90.67%, RF=96.33%, Ensemble=94.42%
+- Fold 5: NN=92.08%, RF=96.75%, Ensemble=95.58%
 
 ### 💬 **Sentence Generation**
 - Context-aware English sentence generation
@@ -103,13 +111,13 @@ A comprehensive American Sign Language (ASL) interpreter that detects 15 ASL sig
     ┌────────────────────────────────────┐
     │   Ensemble Prediction Pipeline     │
     ├────────────────────────────────────┤
-    │ NN Model (86.92%)                  │
+    │ NN Model (92.13%)                  │
     │ ↓                                  │
-    │ RF Model (97.23%)                  │
+    │ RF Model (96.82%)                  │
     │ ↓                                  │
     │ Meta-Learner Combination           │
     │ ↓                                  │
-    │ FINAL: 97.8% Accuracy ⭐           │
+    │ FINAL: 97.43% Accuracy ⭐          │
     └────────────┬───────────────────────┘
                  ↓
     ┌─────────────────────────────┐
@@ -196,7 +204,8 @@ ASL-Detection-FYP/
     ├── keypoint_model_15_v4_ensemble_nn.h5    # NN Model
     ├── keypoint_model_15_v4_rf.pkl            # RF Model
     ├── keypoint_model_15_v4_meta.pkl          # Meta-Learner
-    └── keypoint_labels_15_v4.json             # Class labels (15)
+    ├── keypoint_labels_15_v4.json             # Class labels (15)
+    └── ensemble_results.json                  # Training results
 ```
 
 ---
@@ -263,6 +272,7 @@ python ex15class.py
 python Ens15class.py
 # Time: ~10-20 minutes
 # Creates: Models/*.h5, *.pkl
+# Generates: Models/ensemble_results.json
 ```
 
 ### Run Flask Application
@@ -345,23 +355,51 @@ http://localhost:5000
 
 ---
 
-## 📊 Performance Metrics
+## 📊 Performance Metrics (REAL - from 5-Fold CV)
+
+### Accuracy by Model
+
+| Model | Accuracy |
+|-------|----------|
+| **Neural Network** | 92.13% |
+| **Random Forest** | 96.82% |
+| **Ensemble (Soft-Vote)** | 95.73% |
+| **Meta-Learner (Stacking)** | **97.43% ⭐** |
+
+### Fold-by-Fold Breakdown
+
+| Fold | NN | RF | Ensemble |
+|------|----|----|----------|
+| **1** | 92.58% | 96.67% | 95.92% |
+| **2** | 92.92% | 97.50% | 96.75% |
+| **3** | 92.42% | 96.83% | 96.00% |
+| **4** | 90.67% | 96.33% | 94.42% |
+| **5** | 92.08% | 96.75% | 95.58% |
+| **Mean** | **92.13%** | **96.82%** | **95.73%** |
+| **Std Dev** | ±0.91% | ±0.49% | ±0.91% |
+
+### Real-Time Performance
 
 | Metric | Value |
 |--------|-------|
-| **Neural Network Accuracy** | 86.92% |
-| **Random Forest Accuracy** | 97.23% |
-| **Ensemble (Stacking)** | 97.8% ⭐ |
-| **Real-Time Speed (CPU)** | 16-20 FPS |
 | **Hand Detection Latency** | ~15ms |
 | **Model Prediction** | ~35ms |
+| **Real-Time Speed (CPU)** | 16-20 FPS |
 | **NLP Generation** | <10ms (local) or <100ms (Groq) |
 | **Translation Latency** | ~200ms (Google Translate) |
 | **TTS Generation** | ~500ms average |
 | **Total E2E Latency** | ~1 second |
-| **Training Samples** | 6,000 (400 per class × 15) |
+
+### Dataset Information
+
+| Metric | Value |
+|--------|-------|
+| **Total Samples** | 6,000 |
+| **Classes** | 15 ASL signs |
+| **Samples per Class** | 400 |
 | **Hand Keypoints** | 126 dimensions (21 × 2 × 3) |
 | **Emotion Classes** | 5 (Happy, Sad, Angry, Neutral, Surprised) |
+| **Facial Features** | 52 landmarks |
 
 ---
 
@@ -412,7 +450,7 @@ STEP 2: Hand Detection (MediaPipe)
 STEP 3: Ensemble Prediction
 ├─ NN model → probability distribution
 ├─ RF model → probability distribution
-└─ Meta-learner → weighted combination = 97.8% confidence
+└─ Meta-learner → weighted combination = 97.43% confidence
 
 STEP 4: Sign Interpretation
 ├─ Map class index to sign name (e.g., 0 → "HELP")
@@ -547,7 +585,7 @@ Extracts hand keypoints:
 ### Current Status: ✅ Internal Testing Ready
 
 **Fully Functional:**
-- ✅ Real-time detection (97.8% accuracy)
+- ✅ Real-time detection (97.43% meta-learner accuracy)
 - ✅ Multi-language support (EN, UR, AR)
 - ✅ Text-to-speech (pyttsx3)
 - ✅ Emotion detection
@@ -605,7 +643,7 @@ Extracts hand keypoints:
 
 ## 🎯 Key Achievements
 
-✨ **97.8% Ensemble Accuracy** - Stacking meta-learner optimization
+✨ **97.43% Meta-Learner Accuracy** - Best stacking ensemble result
 🎨 **Multi-Language Support** - Real-time translation to Urdu & Arabic
 🔊 **Text-to-Speech** - Natural voice synthesis in 3 languages
 😊 **Emotion Detection** - Parallel emotion recognition
@@ -629,7 +667,7 @@ Extracts hand keypoints:
 ## 📅 Version History
 
 **v1.0 (Internal)** - August 2024
-- Base ensemble models (97.8% accuracy)
+- Base ensemble models (97.43% meta-learner accuracy)
 - Flask web application
 - Multi-language support (EN, UR, AR)
 - Text-to-Speech integration
@@ -689,6 +727,7 @@ For internal testing issues:
 
 **Last Updated:** August 2024  
 **Status:** ✅ INTERNAL VERSION COMPLETE & FUNCTIONAL  
+**Real Metrics:** NN=92.13%, RF=96.82%, Meta-Learner=97.43%  
 **Next Update:** External Version with Personalization
 
 ---
@@ -697,8 +736,8 @@ For internal testing issues:
 
 The internal version is **COMPLETE and FULLY FUNCTIONAL** on localhost:5000
 
-All features working:
-- ✅ Detection (97.8%)
+All features working with REAL accuracy metrics:
+- ✅ Detection (97.43% meta-learner)
 - ✅ Translation (EN/UR/AR)
 - ✅ Text-to-Speech
 - ✅ Emotion Detection

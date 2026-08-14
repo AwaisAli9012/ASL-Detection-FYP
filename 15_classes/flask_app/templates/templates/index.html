@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ASL Interpreter — Real-Time Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+
+  <header>
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">🤟</span>
+        <div>
+          <div class="logo-title">ASL Interpreter</div>
+          <div class="logo-sub">Ensemble AI · Real-Time Detection</div>
+        </div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="lang-switcher">
+        {% for key, lang in languages.items() %}
+        <button class="lang-btn {% if key == 'english' %}active{% endif %}" id="lang-{{ key }}"
+          onclick="setLanguage('{{ key }}')">
+          {{ lang.label }}
+        </button>
+        {% endfor %}
+      </div>
+      <div class="stat-pill">
+        <span class="stat-dot green"></span>
+        <span id="fps-val">0</span> FPS
+      </div>
+      <div class="stat-pill">
+        <span class="stat-dot blue"></span>
+        <span id="ms-val">0</span> ms
+      </div>
+      <div class="stat-pill">
+        <span class="stat-dot" id="hand-dot"></span>
+        <span id="hand-label">No Hand</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- LEFT -->
+    <section class="col-left">
+
+      <div class="card camera-card">
+        <div class="card-label" id="label-live-camera">LIVE CAMERA</div>
+        <div class="camera-wrap">
+          <img src="/video_feed" id="camera-feed" alt="Camera Feed" />
+          <div class="camera-overlay">
+            <div class="overlay-sign" id="overlay-sign">...</div>
+            <div class="overlay-conf" id="overlay-conf"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card sign-card">
+        <div class="card-label" id="label-detected-sign">DETECTED SIGN</div>
+        <div class="sign-display">
+          <div class="sign-word" id="current-sign">...</div>
+          <div class="conf-row">
+            <div class="conf-bar-bg">
+              <div class="conf-bar-fill" id="conf-bar"></div>
+            </div>
+            <div class="conf-label" id="conf-label">0%</div>
+          </div>
+        </div>
+        <button id="btn-add" class="btn btn-primary" onclick="addWord()">
+          ＋ Add to Sentence <kbd>ENTER</kbd>
+        </button>
+      </div>
+
+
+      <div class="card emotion-card">
+        <div class="card-label" id="label-emotion">EMOTION DETECTED</div>
+        <div class="emotion-display">
+          <div class="emotion-emoji" id="emotion-emoji">😐</div>
+          <div class="emotion-info">
+            <div class="emotion-name" id="emotion-name">...</div>
+            <div class="conf-row">
+              <div class="conf-bar-bg">
+                <div class="conf-bar-fill emotion-bar" id="emotion-bar"></div>
+              </div>
+              <div class="conf-label" id="emotion-conf-label">0%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shortcuts-card">
+        <div class="card-label" id="label-shortcuts">KEYBOARD SHORTCUTS</div>
+        <div class="shortcuts-grid" id="shortcuts-grid">
+          <div class="shortcut-row"><kbd>ENTER</kbd><span>Add current sign</span></div>
+          <div class="shortcut-row"><kbd>BKSP</kbd><span>Remove last word</span></div>
+          <div class="shortcut-row"><kbd>G</kbd><span>Generate AI sentence</span></div>
+          <div class="shortcut-row"><kbd>1</kbd><span>Speak Self</span></div>
+          <div class="shortcut-row"><kbd>2</kbd><span>Speak To</span></div>
+          <div class="shortcut-row"><kbd>SPACE</kbd><span>Clear all words</span></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- CENTER -->
+    <section class="col-center">
+
+      <div class="card">
+        <div class="card-label" id="label-signed-words">SIGNED WORDS</div>
+        <div class="words-display" id="words-display">
+          <span class="empty-hint">No words yet — press <kbd>ENTER</kbd> to add current sign</span>
+        </div>
+        <div class="btn-row">
+          <button id="btn-remove" class="btn btn-ghost" onclick="removeWord()">⌫ Remove <kbd>BKSP</kbd></button>
+          <button id="btn-clear" class="btn btn-ghost" onclick="clearWords()">✕ Clear <kbd>SPACE</kbd></button>
+          <button id="btn-generate" class="btn btn-accent" onclick="generateSentence()">⚡ Generate <kbd>G</kbd></button>
+        </div>
+      </div>
+
+      <div class="card ai-card">
+        <div class="card-label-row">
+          <div class="card-label" id="label-ai-section">AI INTERPRETATION</div>
+          <div class="lang-badge" id="lang-badge">English</div>
+        </div>
+        <div class="ai-body" id="ai-body">
+          <div class="ai-placeholder">Press <kbd>G</kbd> or click Generate to interpret signed words</div>
+        </div>
+        <div class="btn-row" id="speak-row" style="display:none">
+          <button id="btn-speak-self" class="btn btn-speak" onclick="speakLine('self')">🔊 Speak Self
+            <kbd>1</kbd></button>
+          <button id="btn-speak-to" class="btn btn-speak" onclick="speakLine('to')">🔊 Speak To <kbd>2</kbd></button>
+        </div>
+      </div>
+
+      <div class="card reply-card">
+        <div class="card-label" id="label-reply">REPLY (Non-Signer)</div>
+        <div class="reply-hint" id="reply-hint">Type a response — it will be spoken aloud in the selected language</div>
+        <div class="reply-row">
+          <input type="text" id="reply-input" class="reply-input" placeholder="Type reply and press Enter..." />
+          <button id="btn-send" class="btn btn-primary" onclick="sendReply()">Send &amp; Speak</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- RIGHT -->
+    <section class="col-right">
+
+      <div class="card history-card">
+        <div class="card-label-row">
+          <div class="card-label" id="label-history">CONVERSATION HISTORY</div>
+          <a href="/export_history" class="export-btn" id="export-btn">⬇ Export</a>
+        </div>
+        <div class="history-list" id="history-list">
+          <div class="empty-hint">No conversation yet</div>
+        </div>
+      </div>
+
+      <div class="card signs-card">
+        <div class="card-label" id="label-signs">SUPPORTED SIGNS (15)</div>
+        <div class="signs-grid">
+          {% for label in labels %}
+          <div class="sign-chip">{{ label }}</div>
+          {% endfor %}
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script src="/static/script.js"></script>
+</body>
+
+</html>

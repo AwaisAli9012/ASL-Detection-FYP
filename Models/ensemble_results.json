@@ -1,0 +1,43 @@
+{
+  "folds": [
+    {
+      "fold": 1,
+      "nn_acc": 92.58,
+      "rf_acc": 96.67,
+      "ens_acc": 95.92
+    },
+    {
+      "fold": 2,
+      "nn_acc": 92.92,
+      "rf_acc": 97.5,
+      "ens_acc": 96.75
+    },
+    {
+      "fold": 3,
+      "nn_acc": 92.42,
+      "rf_acc": 96.83,
+      "ens_acc": 96.0
+    },
+    {
+      "fold": 4,
+      "nn_acc": 90.67,
+      "rf_acc": 96.33,
+      "ens_acc": 94.42
+    },
+    {
+      "fold": 5,
+      "nn_acc": 92.08,
+      "rf_acc": 96.75,
+      "ens_acc": 95.58
+    }
+  ],
+  "nn_mean_acc": 92.13,
+  "rf_mean_acc": 96.82,
+  "ensemble_mean_acc": 95.73,
+  "meta_oof_acc": 97.43,
+  "saved_models": {
+    "nn": "/home/xero1/Documents/ASL-Detection-FYP/Models/keypoint_model_15_v4_ensemble_nn.h5",
+    "rf": "/home/xero1/Documents/ASL-Detection-FYP/Models/keypoint_model_15_v4_rf.pkl",
+    "meta": "/home/xero1/Documents/ASL-Detection-FYP/Models/keypoint_model_15_v4_meta.pkl"
+  }
+}

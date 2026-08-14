@@ -1,28 +1,33 @@
+import os
 import cv2
 import json
 import pickle
+import time
+import threading
 import numpy as np
 import tensorflow as tf
 import mediapipe as mp
 from collections import deque, Counter
 from groq import Groq
-import os
 import pyttsx3
-import threading
+from pathlib import Path
 
 # --- PATHS ---
-NN_PATH     = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_ensemble_nn.h5"
-RF_PATH     = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_rf.pkl"
-META_PATH   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_model_15_v4_meta.pkl"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v4.json"
+BASE_DIR    = Path(__file__).resolve().parent
+REPO_ROOT   = BASE_DIR.parent
+MODELS_DIR  = REPO_ROOT / "Models"
 
-# --- SETTINGS ---
-CONFIDENCE   = 0.75
-SMOOTH       = 25
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+NN_PATH     = str(MODELS_DIR / "keypoint_model_15_v4_ensemble_nn.h5")
+RF_PATH     = str(MODELS_DIR / "keypoint_model_15_v4_rf.pkl")
+META_PATH   = str(MODELS_DIR / "keypoint_model_15_v4_meta.pkl")
+LABELS_PATH = str(MODELS_DIR / "keypoint_labels_15_v4.json")
 
-# Ensemble mode: "soft_vote" | "stacking"
+# --- SETTINGS & TUNING ---
+CONFIDENCE    = 0.60   # Lowered from 0.75 for better detection on fist/folded signs like "YES"
+SMOOTH        = 15     # Majority voting buffer size
 ENSEMBLE_MODE = "stacking"
+MIRROR_FRAME  = True   # Set to False if training data was collected without horizontal flipping
+GROQ_API_KEY  = os.environ.get("GROQ_API_KEY", "")
 
 # --- COLORS ---
 BG_DARK      = (18, 18, 18)
@@ -44,34 +49,157 @@ meta_model = pickle.load(open(META_PATH, 'rb'))
 with open(LABELS_PATH, 'r') as f:
     labels = json.load(f)
 
-print(f"Ensemble loaded - {len(labels)} classes | mode: {ENSEMBLE_MODE}")
+@tf.function(reduce_retracing=True)
+def fast_nn_predict(x_tensor):
+    return nn_model(x_tensor, training=False)
 
-
-# --- ENSEMBLE PREDICT ---
 def ensemble_predict(keypoints_1d):
     x = tf.convert_to_tensor(keypoints_1d.reshape(1, -1), dtype=tf.float32)
-    nn_probs = nn_model(x, training=False).numpy()[0]
+    nn_probs = fast_nn_predict(x).numpy()[0]
     rf_probs = rf_model.predict_proba(keypoints_1d.reshape(1, -1))[0]
 
     if ENSEMBLE_MODE == "stacking":
         stack = np.hstack([nn_probs, rf_probs]).reshape(1, -1)
         probs = meta_model.predict_proba(stack)[0]
-    else:  # soft_vote
+    else:
         probs = (nn_probs + rf_probs) / 2.0
 
     return int(np.argmax(probs)), float(np.max(probs))
 
 
-# --- GROQ SETUP ---
-if GROQ_API_KEY:
-    groq_client = Groq(api_key=GROQ_API_KEY)
-else:
-    groq_client = None
-generated_sentence = ""
+# --- THREADED CAMERA STREAM ---
+class ThreadedCamera:
+    def __init__(self, src=0):
+        self.cap = cv2.VideoCapture(src)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.ret, self.frame = self.cap.read()
+        self.running = True
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
+
+    def _update(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.ret, self.frame = ret, frame
+            else:
+                time.sleep(0.005)
+
+    def read(self):
+        with self.lock:
+            return self.ret, self.frame.copy() if self.frame is not None else (False, None)
+
+    def stop(self):
+        self.running = False
+        self.cap.release()
+
+
+# --- BACKGROUND INFERENCE WORKER ---
+class AsyncInferenceWorker:
+    def __init__(self):
+        self.running = True
+        self.lock = threading.Lock()
+        self.latest_frame = None
+        self.has_new_frame = False
+
+        # Output states
+        self.hand_detected = False
+        self.current_word = "..."
+        self.current_conf = 0.0
+        self.landmarks_data = []
+        self.prediction_buffer = deque(maxlen=SMOOTH)
+
+        self.thread = threading.Thread(target=self._run_inference, daemon=True)
+        self.thread.start()
+
+    def submit_frame(self, frame):
+        with self.lock:
+            if not self.has_new_frame:  # Skip frame if worker is currently busy
+                self.latest_frame = frame
+                self.has_new_frame = True
+
+    def get_results(self):
+        with self.lock:
+            return self.hand_detected, self.current_word, self.current_conf, self.landmarks_data
+
+    def _run_inference(self):
+        mp_hands = mp.solutions.hands
+        # Set back to model_complexity=1 for full landmark accuracy on fist/folded gestures
+        hands = mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            model_complexity=1,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+
+        while self.running:
+            frame_to_process = None
+            with self.lock:
+                if self.has_new_frame:
+                    frame_to_process = self.latest_frame
+                    self.has_new_frame = False
+
+            if frame_to_process is None:
+                time.sleep(0.005)
+                continue
+
+            rgb = cv2.cvtColor(frame_to_process, cv2.COLOR_BGR2RGB)
+            result = hands.process(rgb)
+
+            hand_detected = bool(result.multi_hand_landmarks)
+            curr_word = "..."
+            curr_conf = 0.0
+            lm_list = []
+
+            if hand_detected:
+                keypoints = []
+                for hand_idx in range(2):
+                    if hand_idx < len(result.multi_hand_landmarks):
+                        lm = result.multi_hand_landmarks[hand_idx]
+                        lm_list.append([(p.x, p.y) for p in lm.landmark])
+                        for point in lm.landmark:
+                            keypoints.extend([point.x, point.y, point.z])
+                    else:
+                        keypoints.extend([0.0] * 63)
+
+                class_idx, confidence = ensemble_predict(np.array(keypoints, dtype=np.float32))
+
+                if confidence >= CONFIDENCE:
+                    self.prediction_buffer.append(class_idx)
+
+                if self.prediction_buffer:
+                    smoothed_idx = Counter(self.prediction_buffer).most_common(1)[0][0]
+                    curr_word = labels[smoothed_idx].upper() if isinstance(labels, list) else labels[str(smoothed_idx)].upper()
+                    curr_conf = confidence
+            else:
+                self.prediction_buffer.clear()
+
+            with self.lock:
+                self.hand_detected = hand_detected
+                if hand_detected and curr_conf >= CONFIDENCE:
+                    self.current_word = curr_word
+                    self.current_conf = curr_conf
+                elif not hand_detected:
+                    self.current_word = "..."
+                    self.current_conf = 0.0
+                self.landmarks_data = lm_list
+
+        hands.close()
+
+    def stop(self):
+        self.running = False
+
+
+# --- GROQ & TTS ---
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+tts_lock = threading.Lock()
 
 def generate_sentence(words):
     if not groq_client:
-        return "Error: GROQ_API_KEY environment variable missing."
+        return "Error: GROQ_API_KEY missing."
     try:
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -85,40 +213,21 @@ def generate_sentence(words):
     except Exception as e:
         return f"Error: {str(e)}"
 
-
-# --- THREADED TTS ---
-tts_lock = threading.Lock()
-
 def speak(text):
-    if not text.strip():
-        return
-        
+    if not text.strip(): return
     def tts_worker(phrase):
-        with tts_lock:
+        if tts_lock.acquire(blocking=False):
             try:
                 engine = pyttsx3.init()
                 engine.setProperty('rate', 150)
-                engine.setProperty('volume', 1.0)
                 engine.say(phrase)
                 engine.runAndWait()
-            except Exception as e:
-                print(f"TTS Thread Error: {e}")
-
+            except Exception: pass
+            finally: tts_lock.release()
     threading.Thread(target=tts_worker, args=(text,), daemon=True).start()
 
 
-# --- MEDIAPIPE ---
-mp_hands = mp.solutions.hands
-mp_draw  = mp.solutions.drawing_utils
-hands    = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7
-)
-
-
-# --- HELPERS ---
+# --- DRAWING HELPERS ---
 def draw_rounded_rect(img, x1, y1, x2, y2, color, radius=10, thickness=-1):
     if x2 <= x1 + 2*radius or y2 <= y1 + 2*radius:
         cv2.rectangle(img, (x1, y1), (x2, y2), color, thickness)
@@ -143,21 +252,19 @@ def wrap_text(text, max_chars):
         if len(current) + len(w) + 1 <= max_chars:
             current = (current + " " + w).strip()
         else:
-            if current:
-                lines.append(current)
+            if current: lines.append(current)
             current = w
-    if current:
-        lines.append(current)
+    if current: lines.append(current)
     return lines if lines else [""]
 
 
-# --- INIT ---
-prediction_buffer = deque(maxlen=SMOOTH)
-sentence_words    = []
-current_word      = "..."
-last_valid_word   = "..."  # Memory snapshot to hold key inputs when hand drops out
-current_conf      = 0.0
-cap               = cv2.VideoCapture(0)
+# --- INITIALIZATION ---
+cam = ThreadedCamera(0)
+worker = AsyncInferenceWorker()
+
+sentence_words  = []
+last_valid_word = "..."
+generated_sentence, self_text, to_text = "", "", ""
 
 FONT      = cv2.FONT_HERSHEY_SIMPLEX
 FONT_BOLD = cv2.FONT_HERSHEY_DUPLEX
@@ -166,89 +273,62 @@ WIN_NAME = "ASL Ensemble Detection System"
 cv2.namedWindow(WIN_NAME, cv2.WINDOW_NORMAL)
 cv2.resizeWindow(WIN_NAME, 1280, 720)
 
-self_text = ""
-to_text = ""
+HAND_CONNECTIONS = mp.solutions.hands.HAND_CONNECTIONS
 
-print("Controls: ENTER=Add | BKSP=Remove | G=AI Generate | SPACE=Clear All | Q=Quit")
-
+# --- MAIN LOOP ---
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    ret, frame = cam.read()
+    if not ret or frame is None:
+        continue
 
-    frame = cv2.flip(frame, 1)
+    if MIRROR_FRAME:
+        frame = cv2.flip(frame, 1)
 
-    _, _, win_w, win_h = cv2.getWindowImageRect(WIN_NAME)
-    if win_w < 100 or win_h < 100:
+    try:
+        _, _, win_w, win_h = cv2.getWindowImageRect(WIN_NAME)
+    except Exception:
         win_w, win_h = 1280, 720
-    
+
     win_w, win_h = max(win_w, 640), max(win_h, 480)
 
     PANEL_RATIO = 0.35
     panel_w  = int(win_w * PANEL_RATIO)
     cam_w    = win_w - panel_w
     cam_h    = win_h
-
-    S     = win_h / 720.0
-    PAD   = int(12 * S)
-    INNER = panel_w - 2 * PAD
+    S        = win_h / 720.0
+    PAD      = int(12 * S)
+    INNER    = panel_w - 2 * PAD
 
     fs_title  = max(0.5,  0.9  * S)
-    fs_sub    = max(0.35, 0.5  * S)
     fs_sign   = max(0.6,  1.3  * S)
     fs_normal = max(0.35, 0.55 * S)
     fs_small  = max(0.28, 0.42 * S)
-
-    lh = int(22 * S)
+    lh        = int(22 * S)
 
     frame_resized = cv2.resize(frame, (cam_w, cam_h))
+    
+    # Send frame to background thread
+    worker.submit_frame(frame_resized)
+
+    # Fetch latest prediction asynchronously
+    hand_detected, current_word, current_conf, landmarks_data = worker.get_results()
+
+    if hand_detected and current_word != "...":
+        last_valid_word = current_word
+
+    # Render hand landmarks
+    for hand_lms in landmarks_data:
+        coords = [(int(pt[0] * cam_w), int(pt[1] * cam_h)) for pt in hand_lms]
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            cv2.line(frame_resized, coords[start_idx], coords[end_idx], (255, 255, 255), max(1, int(2*S)))
+        for pt in coords:
+            cv2.circle(frame_resized, pt, max(2, int(3*S)), ACCENT_GREEN, -1)
+
     canvas = np.full((win_h, win_w, 3), BG_DARK, dtype=np.uint8)
-
-    rgb    = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
-    hand_detected = False
-
-    if result.multi_hand_landmarks:
-        hand_detected = True
-        for hand_lm in result.multi_hand_landmarks:
-            mp_draw.draw_landmarks(
-                frame_resized, hand_lm, mp_hands.HAND_CONNECTIONS,
-                mp_draw.DrawingSpec(color=ACCENT_GREEN, thickness=max(1,int(2*S)), circle_radius=max(2,int(3*S))),
-                mp_draw.DrawingSpec(color=(255,255,255), thickness=max(1,int(2*S)))
-            )
-
-        keypoints = []
-        for hand_idx in range(2):
-            if hand_idx < len(result.multi_hand_landmarks):
-                lm = result.multi_hand_landmarks[hand_idx]
-                for point in lm.landmark:
-                    keypoints.extend([point.x, point.y, point.z])
-            else:
-                keypoints.extend([0.0] * 63)
-
-        class_idx, confidence = ensemble_predict(np.array(keypoints, dtype=np.float32))
-
-        if confidence >= CONFIDENCE:
-            prediction_buffer.append(class_idx)
-
-        if prediction_buffer:
-            smoothed_idx = Counter(prediction_buffer).most_common(1)[0][0]
-            
-            if isinstance(labels, list):
-                current_word = labels[smoothed_idx].upper()
-            else:
-                current_word = labels[str(smoothed_idx)].upper()
-                
-            current_conf = confidence
-            last_valid_word = current_word  # Save persistent snapshot of the last made sign
-    else:
-        prediction_buffer.clear()
-        current_conf = 0.0
-        current_word = "..."
-
     canvas[0:cam_h, 0:cam_w] = frame_resized
     cv2.rectangle(canvas, (0, 0), (cam_w - 1, cam_h - 1), BORDER, 2)
 
+    # Status Indicator
     dot_r = max(6, int(8 * S))
     dot_x, dot_y = dot_r + 8, dot_r + 8
     dot_color = ACCENT_GREEN if hand_detected else (0, 0, 200)
@@ -256,17 +336,19 @@ while True:
     cv2.putText(canvas, "Hand Detected" if hand_detected else "No Hand",
                 (dot_x + dot_r + 6, dot_y + int(5*S)), FONT, fs_small, dot_color, 1, cv2.LINE_AA)
 
+    # UI Panel Layout
     px  = cam_w + PAD
     px2 = cam_w + PAD + INNER
     cy  = int(30 * S)
 
     cv2.putText(canvas, "ASL DETECTION", (px, cy), FONT_BOLD, fs_title, ACCENT_BLUE, max(1,int(2*S)), cv2.LINE_AA)
     cy += int(22 * S)
-    cv2.putText(canvas, f"Ensemble: NN + Random Forest", (px, cy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
+    cv2.putText(canvas, "Ensemble: NN + Random Forest", (px, cy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
     cy += int(10 * S)
     cv2.line(canvas, (px, cy), (px2, cy), BORDER, 1)
     cy += int(14 * S)
 
+    # Current Sign Display
     cv2.putText(canvas, "CURRENT SIGN", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
     card_h = int(70 * S)
@@ -277,14 +359,11 @@ while True:
     
     if hand_detected and current_conf >= CONFIDENCE:
         put_text_centered(canvas, current_word, mid_x, sign_y, FONT_BOLD, fs_sign, ACCENT_GREEN, max(1,int(2*S)))
-        put_text_centered(canvas, f"{current_conf*100:.1f}% confidence",
-                          mid_x, cy + card_h - int(6*S), FONT, fs_small, TEXT_GRAY, 1)
+        put_text_centered(canvas, f"{current_conf*100:.1f}% confidence", mid_x, cy + card_h - int(6*S), FONT, fs_small, TEXT_GRAY, 1)
     else:
-        # Usability Upgrade: If hand is down but a valid staged sign exists, keep it visible
         if last_valid_word != "...":
             put_text_centered(canvas, last_valid_word, mid_x, sign_y, FONT_BOLD, fs_sign, ACCENT_BLUE, max(1,int(2*S)))
-            put_text_centered(canvas, "STAGED - Press ENTER to Add",
-                              mid_x, cy + card_h - int(6*S), FONT, fs_small, ACCENT_BLUE, 1)
+            put_text_centered(canvas, "STAGED - Press ENTER to Add", mid_x, cy + card_h - int(6*S), FONT, fs_small, ACCENT_BLUE, 1)
         else:
             put_text_centered(canvas, "...", mid_x, sign_y, FONT_BOLD, fs_normal, TEXT_DIM, max(1,int(2*S)))
 
@@ -300,6 +379,7 @@ while True:
 
     cy += int(16 * S)
 
+    # Signed Words Sequence
     cv2.putText(canvas, "SIGNED WORDS", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
     card_h2 = int(55 * S)
@@ -312,11 +392,11 @@ while True:
     line_start_y   = cy + int(20 * S)
     for li, ln in enumerate(sw_lines[:2]):
         put_text_centered(canvas, ln, mid_x, line_start_y + li * lh, FONT, fs_normal, sentence_color, 1)
-    cv2.putText(canvas, f"{len(sentence_words)} word(s)",
-                (px + int(6*S), cy + card_h2 - int(5*S)), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"{len(sentence_words)} word(s)", (px + int(6*S), cy + card_h2 - int(5*S)), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
 
     cy += card_h2 + int(16 * S)
 
+    # AI Interpretation Box
     cv2.putText(canvas, "AI INTERPRETATION", (px, cy), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
     cy += int(8 * S)
     ai_top    = cy
@@ -329,8 +409,7 @@ while True:
 
         cv2.putText(canvas, "Self:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GREEN, 1, cv2.LINE_AA)
         iy += lh
-        self_lines = wrap_text(self_text, max_ai_chars)
-        for sl in self_lines[:3]:
+        for sl in wrap_text(self_text, max_ai_chars)[:3]:
             cv2.putText(canvas, sl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
             iy += lh
 
@@ -340,8 +419,7 @@ while True:
 
         cv2.putText(canvas, "To:", (px + int(8*S), iy), FONT, fs_small, ACCENT_GOLD, 1, cv2.LINE_AA)
         iy += lh
-        to_lines = wrap_text(to_text, max_ai_chars)
-        for tl in to_lines[:3]:
+        for tl in wrap_text(to_text, max_ai_chars)[:3]:
             cv2.putText(canvas, tl, (px + int(8*S), iy), FONT, fs_normal, TEXT_WHITE, 1, cv2.LINE_AA)
             iy += lh
     else:
@@ -350,6 +428,7 @@ while True:
 
     cy = ai_top + ai_card_h + int(16 * S)
 
+    # Controls Menu
     controls = [
         ("ENTER", "Add last sign"),
         ("BKSP",  "Remove last word"),
@@ -370,10 +449,8 @@ while True:
         key_w  = int(55 * S)
         for i, (k, desc) in enumerate(controls):
             ky = cy + int(14*S) + i * row_h
-            if ky + row_h > cy + ctrl_card_h:
-                break
-            draw_rounded_rect(canvas, px + int(6*S), ky - int(12*S),
-                              px + int(6*S) + key_w, ky + int(4*S), BG_DARK, radius=4)
+            if ky + row_h > cy + ctrl_card_h: break
+            draw_rounded_rect(canvas, px + int(6*S), ky - int(12*S), px + int(6*S) + key_w, ky + int(4*S), BG_DARK, radius=4)
             cv2.putText(canvas, k,    (px + int(10*S), ky), FONT, fs_small, ACCENT_BLUE, 1, cv2.LINE_AA)
             cv2.putText(canvas, desc, (px + int(6*S) + key_w + int(8*S), ky), FONT, fs_small, TEXT_GRAY, 1, cv2.LINE_AA)
 
@@ -382,60 +459,42 @@ while True:
 
     cv2.imshow(WIN_NAME, canvas)
 
+    # Key Listeners
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         break
-    elif key == 13: # ENTER
-        # Inputs according to your command: locks in the persistent memory snapshot of the last sign made
+    elif key in (13, 10): # ENTER
         if last_valid_word != "...":
             sentence_words.append(last_valid_word)
-            print(f"Inputted Sign: {last_valid_word} | Sequence: {' '.join(sentence_words)}")
-            last_valid_word = "..." # Clears snapshot cache so you must perform another sign before adding again
-            generated_sentence = ""
-            self_text = ""
-            to_text = ""
+            last_valid_word = "..."
+            generated_sentence, self_text, to_text = "", "", ""
     elif key == 8: # BACKSPACE
-        # Removes the last sign added to your input list
         if sentence_words:
-            removed = sentence_words.pop()
-            generated_sentence = ""
-            self_text = ""
-            to_text = ""
-            print(f"Removed Last Input: {removed}")
+            sentence_words.pop()
+            generated_sentence, self_text, to_text = "", "", ""
     elif key == ord('g'):
         if sentence_words:
-            print("Generating...")
             generated_sentence = generate_sentence(sentence_words)
-            print(f"Generated:\n{generated_sentence}")
-            
             lines = [line.strip() for line in generated_sentence.split('\n') if line.strip()]
-            self_text = ""
-            to_text = ""
+            self_text, to_text = "", ""
             for line in lines:
                 if line.lower().startswith("self:"):
                     self_text = line.replace('Self:', '', 1).replace('self:', '', 1).strip()
                 elif line.lower().startswith("to:"):
                     to_text = line.replace('To:', '', 1).replace('to:', '', 1).strip()
-            
             if not self_text and len(lines) >= 1: 
                 self_text = lines[0].replace('Self:', '', 1).replace('self:', '', 1).strip()
             if not to_text and len(lines) >= 2: 
                 to_text = lines[1].replace('To:', '', 1).replace('to:', '', 1).strip()
     elif key == ord('1'):
-        if generated_sentence and self_text:
-            speak(self_text)
+        if generated_sentence and self_text: speak(self_text)
     elif key == ord('2'):
-        if generated_sentence and to_text:
-            speak(to_text)
+        if generated_sentence and to_text: speak(to_text)
     elif key == 32: # SPACE
-        # Completely resets the system arrays according to inputs
         sentence_words.clear()
         last_valid_word = "..."
-        generated_sentence = ""
-        self_text = ""
-        to_text = ""
-        print("Cleared all inputs.")
+        generated_sentence, self_text, to_text = "", "", ""
 
-cap.release()
+cam.stop()
+worker.stop()
 cv2.destroyAllWindows()
-hands.close()

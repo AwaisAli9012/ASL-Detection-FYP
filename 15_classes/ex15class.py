@@ -3,11 +3,38 @@ import cv2
 import json
 import numpy as np
 import mediapipe as mp
+from pathlib import Path
 
-# --- PATHS ---
-INPUT_DIR   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\frames_20"
-OUTPUT_DIR  = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_v4"
-LABELS_PATH = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models\keypoint_labels_15_v4.json"
+# --- PATHS (LINUX VERSION) ---
+# For Linux: /home/xero1/Documents/ASL-Detection-FYP/
+
+BASE_DIR    = Path(__file__).resolve().parent  # /home/xero1/.../15_classes
+REPO_ROOT   = BASE_DIR.parent                   # /home/xero1/.../ASL-Detection-FYP
+
+INPUT_DIR   = str(REPO_ROOT / "Dataset" / "frames_20")
+OUTPUT_DIR  = str(REPO_ROOT / "Dataset" / "keypoints_15_v4")
+MODELS_DIR  = str(REPO_ROOT / "Models")
+LABELS_PATH = os.path.join(MODELS_DIR, "keypoint_labels_15_v4.json")
+
+# Create directories if they don't exist
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(MODELS_DIR, exist_ok=True)
+
+print("=" * 70)
+print("  PATH CONFIGURATION")
+print("=" * 70)
+print(f"BASE_DIR    : {BASE_DIR}")
+print(f"REPO_ROOT   : {REPO_ROOT}")
+print(f"INPUT_DIR   : {INPUT_DIR}")
+print(f"OUTPUT_DIR  : {OUTPUT_DIR}")
+print(f"LABELS_PATH : {LABELS_PATH}")
+print("=" * 70)
+
+# Verify input directory exists
+if not os.path.isdir(INPUT_DIR):
+    print(f"\n❌ ERROR: Input directory not found: {INPUT_DIR}")
+    print("Please ensure frames_20 folder exists in Dataset/")
+    exit(1)
 
 # --- CLASSES ---
 CLASSES_15 = [
@@ -25,8 +52,6 @@ hands    = mp_hands.Hands(
     max_num_hands=2,
     min_detection_confidence=0.3
 )
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 all_keypoints = []
 all_labels    = []
@@ -51,7 +76,7 @@ def augment_keypoints(keypoints):
 
     return augmented
 
-print("Extracting keypoints for 15 classes with balanced augmentation...\n")
+print("\nExtracting keypoints for 15 classes with balanced augmentation...\n")
 
 for idx, cls in enumerate(CLASSES_15):
     cls_path = os.path.join(INPUT_DIR, cls)
@@ -114,7 +139,12 @@ np.save(os.path.join(OUTPUT_DIR, 'labels.npy'),    np.array(all_labels))
 with open(LABELS_PATH, 'w') as f:
     json.dump(CLASSES_15, f)
 
-print(f"\nTotal samples: {len(all_keypoints)}")
+print(f"\n" + "=" * 70)
+print(f"Total samples: {len(all_keypoints)}")
 print(f"Total classes: 15")
 print(f"Each class:    {TARGET_PER_CLASS} samples")
-print(f"Saved to: {OUTPUT_DIR}")
+print(f"Saved keypoints.npy to: {os.path.join(OUTPUT_DIR, 'keypoints.npy')}")
+print(f"Saved labels.npy to:    {os.path.join(OUTPUT_DIR, 'labels.npy')}")
+print(f"Saved labels JSON to:   {LABELS_PATH}")
+print("=" * 70)
+print("\n✅ Keypoint extraction complete!")

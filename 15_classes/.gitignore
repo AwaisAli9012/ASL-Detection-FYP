@@ -1,0 +1,34 @@
+# Virtual Environment
+asl/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Data & Models (large files)
+Dataset/
+Models/
+*.npy
+*.h5
+*.pkl
+asl_personalization.db
+user_profiles/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
+New Text Document.txt
+*.egg-info/
+asl_detection_fyp.egg-info/

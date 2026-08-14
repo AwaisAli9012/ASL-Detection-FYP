@@ -9,9 +9,9 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import StandardScaler
 
-# ── PATHS ─────────────────────────────────────────────────────────────────────
-KEYPOINTS_DIR = "emotion_keypoints"
-SAVE_DIR      = "emotion_models"
+# --- PATHS ---------------------------------------------------
+KEYPOINT_DIR = os.path.join(os.path.dirname(__file__), "emotion_keypoints")
+SAVE_DIR     = os.path.join(os.path.dirname(__file__), "emotion_models")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 EMOTIONS  = ['angry', 'happy', 'sad']

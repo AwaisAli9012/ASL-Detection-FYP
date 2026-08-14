@@ -3,10 +3,14 @@ import numpy as np
 import os
 import mediapipe as mp
 
-# ── PATHS ─────────────────────────────────────────────────────────────────────
-FER_TRAIN_DIR = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\train"
-RAFDB_TRAIN   = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\DATASET\train"
-SAVE_DIR      = "emotion_keypoints"
+
+# --- PATHS ---------------------------------------------------
+# Dynamically locate dataset directories relative to home directory or script location
+BASE_DATASET = os.path.expanduser("~/Documents/Dataset")
+
+FER_TRAIN_DIR = os.path.join(BASE_DATASET, "train")
+RAFDB_TRAIN   = os.path.join(BASE_DATASET, "DATASET", "train")
+SAVE_DIR      = os.path.join(os.path.dirname(__file__), "emotion_keypoints")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 EMOTIONS = ['angry', 'happy', 'sad']

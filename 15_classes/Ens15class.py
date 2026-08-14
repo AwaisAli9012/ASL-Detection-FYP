@@ -3,6 +3,7 @@ import json
 import pickle
 import numpy as np
 import tensorflow as tf
+from pathlib import Path
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, BatchNormalization
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -12,15 +13,35 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.preprocessing import label_binarize
 
-# ── CONFIGURE PATHS ──────────────────────────────────────────────────────────
-KEYPOINTS_DIR = r"C:\Users\Abdullah\Documents\MyWork\FYP\Dataset\keypoints_15_v4"
-MODELS_DIR    = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models"
+# ── CONFIGURE PATHS (LINUX VERSION) ──────────────────────────────────────────────
+# For Linux: /home/xero1/Documents/ASL-Detection-FYP/15_classes
+
+BASE_DIR      = Path(__file__).resolve().parent  # /home/xero1/.../15_classes
+REPO_ROOT     = BASE_DIR.parent                   # /home/xero1/.../ASL-Detection-FYP
+
+# Linux paths (adjusted from Windows)
+DATASET_DIR   = REPO_ROOT / "Dataset"
+KEYPOINTS_DIR = str(DATASET_DIR / "keypoints_15_v4")
+MODELS_DIR    = str(REPO_ROOT / "Models")
+
+# Create Models directory if it doesn't exist
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(KEYPOINTS_DIR, exist_ok=True)
 
 NN_SAVE      = os.path.join(MODELS_DIR, "keypoint_model_15_v4_ensemble_nn.h5")
 RF_SAVE      = os.path.join(MODELS_DIR, "keypoint_model_15_v4_rf.pkl")
 META_SAVE    = os.path.join(MODELS_DIR, "keypoint_model_15_v4_meta.pkl")
 LABELS_PATH  = os.path.join(MODELS_DIR, "keypoint_labels_15_v4.json")
 RESULTS_PATH = os.path.join(MODELS_DIR, "ensemble_results.json")
+
+print("=" * 70)
+print("  PATH CONFIGURATION")
+print("=" * 70)
+print(f"BASE_DIR      : {BASE_DIR}")
+print(f"REPO_ROOT     : {REPO_ROOT}")
+print(f"KEYPOINTS_DIR : {KEYPOINTS_DIR}")
+print(f"MODELS_DIR    : {MODELS_DIR}")
+print("=" * 70)
 
 # ── SETTINGS ─────────────────────────────────────────────────────────────────
 N_FOLDS    = 5       # StratifiedKFold splits
@@ -37,8 +58,17 @@ print("=" * 60)
 print("  ASL Ensemble Trainer  (NN + RF + K-Fold)")
 print("=" * 60)
 
-X = np.load(os.path.join(KEYPOINTS_DIR, "keypoints.npy"))
-y = np.load(os.path.join(KEYPOINTS_DIR, "labels.npy"))
+# Check if data exists
+keypoints_file = os.path.join(KEYPOINTS_DIR, "keypoints.npy")
+labels_file = os.path.join(KEYPOINTS_DIR, "labels.npy")
+
+if not os.path.exists(keypoints_file):
+    print(f"ERROR: {keypoints_file} not found!")
+    print(f"Please run ex15class.py first to generate keypoints")
+    exit(1)
+
+X = np.load(keypoints_file)
+y = np.load(labels_file)
 
 # CRITICAL FIX: Shuffle indices globally so that Keras validation_split 
 # receives a globally balanced mixture of classes instead of a single blocked class.
@@ -257,6 +287,19 @@ print("\nDone! Your core files are untouched.")
 def ensemble_predict(keypoints_1d: np.ndarray,
                      nn_model, rf_model, meta_model=None,
                      mode: str = "soft_vote") -> tuple[int, float]:
+    """
+    Predict using ensemble of NN + RF + Meta-learner
+    
+    Args:
+        keypoints_1d: 1D array of hand keypoints (126 dimensions)
+        nn_model: Trained TensorFlow NN model
+        rf_model: Trained scikit-learn Random Forest
+        meta_model: Trained meta-learner (Logistic Regression)
+        mode: "soft_vote", "stacking", "nn_only", "rf_only"
+        
+    Returns:
+        (class_idx, confidence): Predicted class and confidence
+    """
     x = keypoints_1d.reshape(1, -1)
     nn_probs = nn_model.predict(x, verbose=0)[0]
     rf_probs = rf_model.predict_proba(x)[0]

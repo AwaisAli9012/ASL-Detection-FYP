@@ -17,7 +17,7 @@ from gtts import gTTS
 import pygame
 
 # ── PATHS ────────────────────────────────────────────────────────────────────
-MODELS_DIR         = r"C:\Users\Abdullah\Documents\MyWork\FYP\Models"
+MODELS_DIR = "/home/xero1/Documents/ASL-Detection-FYP/Models"
 NN_PATH            = os.path.join(MODELS_DIR, "keypoint_model_15_v4_ensemble_nn.h5")
 RF_PATH            = os.path.join(MODELS_DIR, "keypoint_model_15_v4_rf.pkl")
 META_PATH          = os.path.join(MODELS_DIR, "keypoint_model_15_v4_meta.pkl")
